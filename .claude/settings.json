@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pm2 delete:*)",
+      "Bash(where node:*)",
+      "Bash(where next:*)",
+      "Bash(pm2 save:*)",
+      "Bash(pm2 startup:*)",
+      "Bash(where pm2:*)",
+      "Bash(powershell -Command \":*)",
+      "Bash(powershell -Command \"Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_InterfaceAlias -notlike ''*Loopback*''} | Select-Object InterfaceAlias, IPAddress\")",
+      "Bash(powershell -Command \"ipconfig\")",
+      "Bash(powershell -Command \"Get-NetFirewallRule -DisplayName ''*3000*'' 2>$null; netsh advfirewall firewall show rule name=''Node 3000'' 2>&1\")",
+      "Bash(netsh advfirewall:*)"
+    ]
+  }
+}

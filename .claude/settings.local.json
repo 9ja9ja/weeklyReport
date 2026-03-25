@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx prisma:*)",
+      "Bash(npx tsc:*)",
+      "Bash(tasklist /fi \"imagename eq node.exe\")",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(echo \"Exit: $?\")"
+    ]
+  },
+  "model": "sonnet"
+}

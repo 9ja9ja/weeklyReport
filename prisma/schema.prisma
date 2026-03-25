@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  
+  reports   Report[]
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  major     String   // "서비스", "제휴", "운영"
+  middle    String   // e.g. "전자결재", "근태관리"
+  orderIdx  Int      @default(0) // 정렬용
+  createdAt DateTime @default(now())
+
+  reportItems ReportItem[]
+
+  @@unique([major, middle])
+}
+
+model Report {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Which week this report belongs to
+  year      Int
+  weekNum   Int      // 1~53
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     ReportItem[]
+
+  @@unique([userId, year, weekNum])
+  @@index([year, weekNum])
+}
+
+model ReportItem {
+  id          Int      @id @default(autoincrement())
+  reportId    Int
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  categoryId  Int
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  // JSON array to store nested items like subcategories and bullet points.
+  // [{ type: "sub", text: "운영 대응 및 테스트" }, { type: "bullet", text: "에디터 수정진행" }]
+  currentContents String  @default("[]") 
+  nextContents    String  @default("[]") 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reportId, categoryId])
+  @@index([categoryId])
+}
+
+model SummaryData {
+  id        Int      @id @default(autoincrement())
+  year      Int
+  weekNum   Int
+  contents  String   // JSON string storing the fully curated summary
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, weekNum])
+}
