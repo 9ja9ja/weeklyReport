@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import Navigation from '@/components/Navigation'
+import Providers from '@/components/Providers'
 
 export const metadata: Metadata = {
   title: '팀 주간보고 시스템',
@@ -15,10 +16,12 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body>
-        <Navigation />
-        <main className="container">
-          {children}
-        </main>
+        <Providers>
+          <Navigation />
+          <main className="container">
+            {children}
+          </main>
+        </Providers>
       </body>
     </html>
   )

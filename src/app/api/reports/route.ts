@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { regenerateSummary } from '@/lib/summaryGenerator';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -7,27 +8,20 @@ export async function GET(request: Request) {
   const year = searchParams.get('year');
   const weekNum = searchParams.get('weekNum');
   const all = searchParams.get('all');
+  const teamId = searchParams.get('teamId');
 
   try {
-    if (all === 'true' && year && weekNum) {
-      // Get combined reports for a specific week
+    if (all === 'true' && year && weekNum && teamId) {
       const reports = await prisma.report.findMany({
-        where: { year: parseInt(year), weekNum: parseInt(weekNum) },
+        where: { year: parseInt(year), weekNum: parseInt(weekNum), user: { teamId: parseInt(teamId) } },
         include: { user: true, items: { include: { category: true } } }
       });
       return NextResponse.json(reports);
     }
 
     if (userId && year && weekNum) {
-      // Get single user's report
       const report = await prisma.report.findUnique({
-        where: {
-          userId_year_weekNum: {
-            userId: parseInt(userId),
-            year: parseInt(year),
-            weekNum: parseInt(weekNum)
-          }
-        },
+        where: { userId_year_weekNum: { userId: parseInt(userId), year: parseInt(year), weekNum: parseInt(weekNum) } },
         include: { items: { include: { category: true } } }
       });
       return NextResponse.json(report || null);
@@ -35,80 +29,56 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch reports' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { userId, year, weekNum, items } = body;
-    // items: Array of { categoryId, currentContents, nextContents }
+    const { userId, year, weekNum, items } = await request.json();
+    if (!userId || !year || !weekNum || !Array.isArray(items)) return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
 
-    if (!userId || !year || !weekNum || !Array.isArray(items)) {
-      return NextResponse.json({ error: 'Invalid data format' }, { status: 400 });
-    }
+    // 유저의 팀 조회
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+    // 잠금 상태 확인 (팀별)
+    const lock = await prisma.summaryLock.findUnique({
+      where: { teamId_year_weekNum: { teamId: user.teamId, year, weekNum } }
+    });
+    if (lock?.isLocked) return NextResponse.json({ error: '이 주차는 잠겨있어 저장할 수 없습니다.' }, { status: 403 });
 
     const result = await prisma.$transaction(async (tx) => {
       const report = await tx.report.upsert({
-        where: {
-          userId_year_weekNum: {
-            userId, year, weekNum
-          }
-        },
+        where: { userId_year_weekNum: { userId, year, weekNum } },
         update: { updatedAt: new Date() },
         create: { userId, year, weekNum }
       });
 
       for (const item of items) {
-        const { categoryId, currentContents, nextContents } = item;
-
-        const currentContentsStr = typeof currentContents === 'string' ? currentContents : JSON.stringify(currentContents);
-        const nextContentsStr = typeof nextContents === 'string' ? nextContents : JSON.stringify(nextContents);
-
+        const currentStr = typeof item.currentContents === 'string' ? item.currentContents : JSON.stringify(item.currentContents);
+        const nextStr = typeof item.nextContents === 'string' ? item.nextContents : JSON.stringify(item.nextContents);
         await tx.reportItem.upsert({
-          where: {
-            reportId_categoryId: {
-              reportId: report.id,
-              categoryId
-            }
-          },
-          update: {
-            currentContents: currentContentsStr,
-            nextContents: nextContentsStr
-          },
-          create: {
-            reportId: report.id,
-            categoryId,
-            currentContents: currentContentsStr,
-            nextContents: nextContentsStr
-          }
+          where: { reportId_categoryId: { reportId: report.id, categoryId: item.categoryId } },
+          update: { currentContents: currentStr, nextContents: nextStr },
+          create: { reportId: report.id, categoryId: item.categoryId, currentContents: currentStr, nextContents: nextStr }
         });
       }
 
-      // 데이터 4주 보관 정책 (이전 데이터 자동 삭제)
-      // Ensure year and weekNum are numbers for calculation
-      const currentYear = parseInt(year);
-      const currentWeekNum = parseInt(weekNum);
-
-      const cutoffYear = currentWeekNum > 4 ? currentYear : currentYear - 1;
-      const cutoffWeekNum = currentWeekNum > 4 ? currentWeekNum - 4 : currentWeekNum + 52 - 4;
-
-      await tx.report.deleteMany({
-        where: {
-          OR: [
-            { year: { lt: cutoffYear } },
-            { year: cutoffYear, weekNum: { lt: cutoffWeekNum } }
-          ]
-        }
-      });
+      // 4주 보관 정책
+      const cy = parseInt(year), cw = parseInt(weekNum);
+      const cutY = cw > 4 ? cy : cy - 1, cutW = cw > 4 ? cw - 4 : cw + 52 - 4;
+      await tx.report.deleteMany({ where: { OR: [{ year: { lt: cutY } }, { year: cutY, weekNum: { lt: cutW } }] } });
 
       return report;
     });
 
+    // 취합본 자동 갱신 (팀별)
+    try { await regenerateSummary(year, weekNum, user.teamId); } catch (e) { console.error('Summary refresh failed:', e); }
+
     return NextResponse.json({ success: true, reportId: result.id });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: 'Failed to save report' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

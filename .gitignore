@@ -46,3 +46,6 @@ next-env.d.ts
 *.db
 tmp_data.json
 scripts/migration-*.js
+
+.vercel
+.env*.local

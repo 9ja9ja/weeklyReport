@@ -7,34 +7,66 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
+model Team {
   id        Int      @id @default(autoincrement())
   name      String   @unique
   createdAt DateTime @default(now())
-  
-  reports   Report[]
+
+  users           User[]
+  majorCategories MajorCategory[]
+  categories      Category[]
+  summaryData     SummaryData[]
+  summaryLocks    SummaryLock[]
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  teamId       Int
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  role         String   @default("user") // "superAdmin" | "teamMaster" | "user"
+  password     String   @default("NOT_SET")
+  mustChangePw Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  reports      Report[]
+
+  @@unique([teamId, name])
+}
+
+model MajorCategory {
+  id        Int      @id @default(autoincrement())
+  name      String
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  orderIdx  Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, name])
 }
 
 model Category {
   id        Int      @id @default(autoincrement())
-  major     String   // "서비스", "제휴", "운영"
-  middle    String   // e.g. "전자결재", "근태관리"
-  orderIdx  Int      @default(0) // 정렬용
+  major     String
+  middle    String
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  orderIdx  Int      @default(0)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   reportItems ReportItem[]
 
-  @@unique([major, middle])
+  @@unique([teamId, major, middle])
 }
 
 model Report {
   id        Int      @id @default(autoincrement())
   userId    Int
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Which week this report belongs to
   year      Int
-  weekNum   Int      // 1~53
+  weekNum   Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -50,13 +82,9 @@ model ReportItem {
   reportId    Int
   report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
   categoryId  Int
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  
-  // JSON array to store nested items like subcategories and bullet points.
-  // [{ type: "sub", text: "운영 대응 및 테스트" }, { type: "bullet", text: "에디터 수정진행" }]
-  currentContents String  @default("[]") 
-  nextContents    String  @default("[]") 
-
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  currentContents String  @default("[]")
+  nextContents    String  @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -68,9 +96,26 @@ model SummaryData {
   id        Int      @id @default(autoincrement())
   year      Int
   weekNum   Int
-  contents  String   // JSON string storing the fully curated summary
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  contents  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([year, weekNum])
+  @@unique([teamId, year, weekNum])
+}
+
+model SummaryLock {
+  id        Int       @id @default(autoincrement())
+  year      Int
+  weekNum   Int
+  teamId    Int
+  team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  isLocked  Boolean   @default(false)
+  lockedBy  Int?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([teamId, year, weekNum])
 }

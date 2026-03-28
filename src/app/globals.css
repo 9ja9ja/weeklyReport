@@ -235,3 +235,107 @@ th {
     background-color: rgba(255, 255, 255, 0.03);
   }
 }
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: var(--panel-bg);
+  width: 90%;
+  max-width: 800px;
+  max-height: 85vh;
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--panel-border);
+}
+
+.modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.confirm-item {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.confirm-item:last-child {
+  border-bottom: none;
+}
+
+.confirm-major {
+  font-size: 0.8rem;
+  color: var(--primary);
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.confirm-middle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.confirm-section-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-top: 0.8rem;
+  margin-bottom: 0.4rem;
+}
+
+.confirm-sub {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+  margin-left: 0.5rem;
+}
+
+.confirm-bullet {
+  margin-left: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--foreground);
+  opacity: 0.9;
+}
+
+/* 유저 행 호버 */
+.user-row:hover {
+  background: rgba(79, 70, 229, 0.04);
+}
+
+/* 모달 오버레이 클릭 가능하도록 */
+.modal-overlay {
+  cursor: default;
+}
