@@ -339,3 +339,9 @@ th {
 .modal-overlay {
   cursor: default;
 }
+
+/* 다크모드 select/option 텍스트 */
+select.input-field option {
+  background: var(--panel-bg, #1e293b);
+  color: var(--foreground, #f1f5f9);
+}

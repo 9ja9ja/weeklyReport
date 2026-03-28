@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber } from '@/lib/weekUtils';
+import { getWeekNumber, getWeekRange, formatDateShort } from '@/lib/weekUtils';
 import changelog from '@/data/changelog';
 
 interface TeamWithUsers {
@@ -120,7 +120,7 @@ export default function Home() {
     <div style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1rem' }}>
       <div className="glass-panel" style={{ padding: '2.5rem', textAlign: 'center', marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.3rem' }}>주간보고 시스템</h1>
-        <p style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.3rem' }}>{year}년 {weekNum}주차</p>
+        <p style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.3rem' }}>{year}년 {weekNum}주차 ({formatDateShort(getWeekRange(year, weekNum).monday)} ~ {formatDateShort(getWeekRange(year, weekNum).friday)})</p>
         <p style={{ color: 'var(--text-muted)', margin: 0 }}>이름을 클릭하여 로그인해주세요.</p>
       </div>
 
