@@ -13,33 +13,34 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 유저 존재 확인
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    const weeks: { year: number; weekNum: number }[] = [];
-    let y = year;
-    let w = weekNum;
-    for (let i = 0; i < count; i++) {
-      weeks.push({ year: y, weekNum: w });
-      w--;
-      if (w < 1) { w = 52; y--; }
-    }
 
-    const reports = await prisma.report.findMany({
-      where: {
-        userId,
-        OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum }))
-      },
-      select: { year: true, weekNum: true, updatedAt: true }
-    });
+    const weeks: { year: number; weekNum: number }[] = [];
+    let y = year, w = weekNum;
+    for (let i = 0; i < count; i++) { weeks.push({ year: y, weekNum: w }); w--; if (w < 1) { w = 52; y--; } }
+
+    // 리포트 + 잠금 상태를 한 번에 조회
+    const [reports, locks] = await Promise.all([
+      prisma.report.findMany({
+        where: { userId, OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) },
+        select: { year: true, weekNum: true, updatedAt: true }
+      }),
+      prisma.summaryLock.findMany({
+        where: { teamId: user.teamId, OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) },
+        select: { year: true, weekNum: true, isLocked: true }
+      })
+    ]);
 
     const reportMap = new Map(reports.map(r => [`${r.year}-${r.weekNum}`, r.updatedAt]));
+    const lockMap = new Map(locks.map(l => [`${l.year}-${l.weekNum}`, l.isLocked]));
 
     const result = weeks.map(wk => ({
       year: wk.year,
       weekNum: wk.weekNum,
       hasReport: reportMap.has(`${wk.year}-${wk.weekNum}`),
-      updatedAt: reportMap.get(`${wk.year}-${wk.weekNum}`) || null
+      updatedAt: reportMap.get(`${wk.year}-${wk.weekNum}`) || null,
+      isLocked: lockMap.get(`${wk.year}-${wk.weekNum}`) ?? false
     }));
 
     return NextResponse.json(result);

@@ -48,14 +48,7 @@ export default function DashboardPage() {
         fetch(`/api/majors?teamId=${teamId}`)
       ]);
       const sd = await statusRes.json();
-      const statuses: WeekStatus[] = Array.isArray(sd) ? sd : [];
-
-      // 각 주차별 잠금 상태 조회
-      const lockResults = await Promise.all(
-        statuses.map(ws => fetch(`/api/reports/summary/lock?year=${ws.year}&weekNum=${ws.weekNum}&teamId=${teamId}`).then(r => r.json()).catch(() => ({ isLocked: false })))
-      );
-      statuses.forEach((ws, i) => { ws.isLocked = lockResults[i]?.isLocked ?? false; });
-      setWeekStatuses(statuses);
+      setWeekStatuses(Array.isArray(sd) ? sd : []);
 
       const cd = await catRes.json(); setCategories(Array.isArray(cd) ? cd : []);
       const md = await majRes.json(); setMajors(Array.isArray(md) ? md.map((m: any) => m.name) : []);

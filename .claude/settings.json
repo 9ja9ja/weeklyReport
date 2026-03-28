@@ -11,7 +11,15 @@
       "Bash(powershell -Command \"Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_InterfaceAlias -notlike ''*Loopback*''} | Select-Object InterfaceAlias, IPAddress\")",
       "Bash(powershell -Command \"ipconfig\")",
       "Bash(powershell -Command \"Get-NetFirewallRule -DisplayName ''*3000*'' 2>$null; netsh advfirewall firewall show rule name=''Node 3000'' 2>&1\")",
-      "Bash(netsh advfirewall:*)"
+      "Bash(netsh advfirewall:*)",
+      "Bash(npm install:*)",
+      "Read(//c/AI IDE/Antigravity/$APPDATA/Claude/**)",
+      "Read(//c/AI IDE/Antigravity/$HOME/AppData/Roaming/Claude/**)",
+      "Read(//c/Users/9ja9j/**)",
+      "mcp__gdrive__search"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\9ja9j"
     ]
   }
 }

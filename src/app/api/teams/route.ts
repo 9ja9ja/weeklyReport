@@ -2,8 +2,40 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireSuperAdmin } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const withUsers = searchParams.get('withUsers') === 'true';
+    const year = parseInt(searchParams.get('year') || '0');
+    const weekNum = parseInt(searchParams.get('weekNum') || '0');
+
+    if (withUsers && year && weekNum) {
+      // 모든 팀 + 유저 + 작성현황을 한 번에 반환
+      const teams = await prisma.team.findMany({
+        orderBy: { id: 'asc' },
+        include: {
+          users: {
+            orderBy: { name: 'asc' },
+            select: {
+              id: true, name: true, role: true, teamId: true,
+              reports: { where: { year, weekNum }, select: { id: true, updatedAt: true } }
+            }
+          }
+        }
+      });
+
+      const result = teams.map(team => ({
+        id: team.id,
+        name: team.name,
+        users: team.users.map((u: any) => ({
+          id: u.id, name: u.name, role: u.role, teamId: u.teamId,
+          hasReport: u.reports.length > 0,
+          lastUpdated: u.reports[0]?.updatedAt || null
+        }))
+      }));
+      return NextResponse.json(result);
+    }
+
     const teams = await prisma.team.findMany({
       orderBy: { id: 'asc' },
       include: { _count: { select: { users: true } } }

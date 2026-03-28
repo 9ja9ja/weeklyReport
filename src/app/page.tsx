@@ -39,19 +39,10 @@ export default function Home() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const teamsRes = await fetch('/api/teams');
-      const teamsData = await teamsRes.json();
-      if (!Array.isArray(teamsData)) { setTeams([]); return; }
-
-      // 모든 팀의 유저를 병렬로 조회
-      const results = await Promise.all(
-        teamsData.map(async (team: any) => {
-          const res = await fetch(`/api/users?teamId=${team.id}&withStatus=true&year=${year}&weekNum=${weekNum}`);
-          const users = await res.json();
-          return { id: team.id, name: team.name, users: Array.isArray(users) ? users : [] };
-        })
-      );
-      setTeams(results);
+      // 단일 API 호출로 모든 팀 + 유저 + 작성현황 조회
+      const res = await fetch(`/api/teams?withUsers=true&year=${year}&weekNum=${weekNum}`);
+      const data = await res.json();
+      setTeams(Array.isArray(data) ? data : []);
     } catch { setTeams([]); }
     finally { setLoading(false); }
   };
