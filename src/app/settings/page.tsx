@@ -262,6 +262,7 @@ export default function SettingsPage() {
               <span style={{ flex: 1, fontWeight: 700, color: 'var(--primary)' }}>{m.name}</span>
               <button onClick={() => moveMajor(idx, -1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
               <button onClick={() => moveMajor(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === majors.filter(x => x.isActive).length - 1}>▼</button>
+              <button onClick={() => toggleMajorActive(m.id, false)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#f59e0b', borderColor: '#f59e0b' }}>사용안함</button>
               <button onClick={() => deleteMajor(m.id, m.name)} className="icon-btn del" style={{ fontSize: '0.8rem' }}>✕</button>
             </div>
           ))}
@@ -302,6 +303,7 @@ export default function SettingsPage() {
                     <span style={{ fontWeight: 500, flex: 1 }}>({idx + 1}) {cat.middle}</span>
                     <button onClick={() => moveCategory(major.name, idx, -1)} className="btn" style={{ padding: '0.1rem 0.3rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
                     <button onClick={() => moveCategory(major.name, idx, 1)} className="btn" style={{ padding: '0.1rem 0.3rem', fontSize: '0.7rem' }} disabled={idx === activeCats.length - 1}>▼</button>
+                    <button onClick={() => toggleCategoryActive(cat.id, false)} className="btn" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', color: '#f59e0b', borderColor: '#f59e0b' }}>사용안함</button>
                     <button onClick={() => deleteCategory(cat.id, cat.middle)} className="icon-btn del" style={{ fontSize: '0.8rem' }}>✕</button>
                   </div>
                 ))}

@@ -29,6 +29,7 @@ export default function SummaryPage() {
   const dragBulletRef = useRef<{ catId: number; type: 'current' | 'next'; subIdx: number; bulletIdx: number } | null>(null);
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
   const [dragOverBulletId, setDragOverBulletId] = useState<string | null>(null);
+  const [copyExclude, setCopyExclude] = useState<Record<number, boolean>>({});
 
   const isEditMode = isMasterOrAbove && !isLocked;
   const showCopyButtons = isLocked;
@@ -71,6 +72,7 @@ export default function SummaryPage() {
       setIsLocked(sumData?.isLocked ?? false);
       if (sumData?.contents) { setInitialState(JSON.parse(sumData.contents)); }
       else { setInitialState(await loadFromUsers()); }
+      setCopyExclude({});
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [year, weekNum, teamId, setInitialState, loadFromUsers]);
@@ -115,45 +117,63 @@ export default function SummaryPage() {
   const nextWeekLabel = weekNum >= 52 ? `${year + 1}년 1주차` : `${weekNum + 1}주차`;
 
   // ── Copy ──
-  const generateCopyData = (mode: 'all' | 'current' | 'next', targetMajor: string | null = null) => {
+  const generateCopyData = (mode: 'all' | 'current' | 'next', targetMajor: string | null = null, excludeOverride?: Record<number, boolean>, skipEmpty = false) => {
     if (!aggregatedMap) return { text: '', html: '' };
+    const exclude = excludeOverride ?? copyExclude;
     let text = '';
     let htmlLines: string[] = [];
     const majorsToCopy = targetMajor ? [targetMajor] : majorNames;
+    const circled = (i: number) => i < 10 ? `⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽`[i] : `(${i + 1})`;
+
+    const renderSection = (cp: string, middle: string, blocks: SubBlock[]) => {
+      let t = `${cp} ${middle || ''}\n`;
+      let h = `<div>${cp} ${middle || ''}</div>`;
+      blocks.forEach((block, i) => {
+        const pf = i < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[i] : `(${i + 1})`;
+        const auth = block.authorText ? ` [${block.authorText}]` : '';
+        t += `     ${pf} ${block.subText || ''}${auth}\n`;
+        h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${pf} ${block.subText || ''}${auth}</div>`;
+        block.bullets.forEach(bul => {
+          t += `          - ${bul.text || ''}\n`;
+          h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- ${bul.text || ''}</div>`;
+        });
+      });
+      if (blocks.length === 0) {
+        t += `     ① 내용없음\n`;
+        h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;① 내용없음</div>`;
+      }
+      return { t, h };
+    };
 
     majorsToCopy.forEach(major => {
       const majorCats = categories.filter(c => c.major === major);
       if (majorCats.length === 0) return;
+      const catsToRender = majorCats.filter(cat => !exclude[cat.id]);
+      if (catsToRender.length === 0) return;
       let majorCurText = '', majorNxtText = '', majorCurHtml = '', majorNxtHtml = '';
 
-      majorCats.forEach((cat, idx) => {
-        const data = aggregatedMap[cat.id] || { current: [], next: [] };
-        const cp = `⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽`[idx] || `(${idx + 1})`;
-
-        const renderSection = (blocks: SubBlock[]) => {
-          let t = `${cp} ${cat.middle || ''}\n`;
-          let h = `<div>${cp} ${cat.middle || ''}</div>`;
-          if (blocks.length > 0) {
-            blocks.forEach((block, i) => {
-              const pf = i < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[i] : `(${i + 1})`;
-              const auth = block.authorText ? ` [${block.authorText}]` : '';
-              t += `     ${pf} ${block.subText || ''}${auth}\n`;
-              h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${pf} ${block.subText || ''}${auth}</div>`;
-              block.bullets.forEach(bul => {
-                t += `          - ${bul.text || ''}\n`;
-                h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- ${bul.text || ''}</div>`;
-              });
-            });
-          } else {
-            t += `     ① 내용없음\n`;
-            h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;① 내용없음</div>`;
-          }
-          return { t, h };
-        };
-
-        if (mode === 'all' || mode === 'current') { const r = renderSection(data.current); majorCurText += r.t; majorCurHtml += r.h; }
-        if (mode === 'all' || mode === 'next') { const r = renderSection(data.next); majorNxtText += r.t; majorNxtHtml += r.h; }
-      });
+      if (skipEmpty && mode === 'all') {
+        // 금주/차주 각각 독립적으로 빈 항목 제외 + 번호 재정렬
+        const curCats = catsToRender.filter(cat => (aggregatedMap[cat.id]?.current?.length ?? 0) > 0);
+        const nxtCats = catsToRender.filter(cat => (aggregatedMap[cat.id]?.next?.length ?? 0) > 0);
+        curCats.forEach((cat, idx) => {
+          const data = aggregatedMap[cat.id] || { current: [], next: [] };
+          const r = renderSection(circled(idx), cat.middle, data.current);
+          majorCurText += r.t; majorCurHtml += r.h;
+        });
+        nxtCats.forEach((cat, idx) => {
+          const data = aggregatedMap[cat.id] || { current: [], next: [] };
+          const r = renderSection(circled(idx), cat.middle, data.next);
+          majorNxtText += r.t; majorNxtHtml += r.h;
+        });
+      } else {
+        catsToRender.forEach((cat, idx) => {
+          const data = aggregatedMap[cat.id] || { current: [], next: [] };
+          const cp = circled(idx);
+          if (mode === 'all' || mode === 'current') { const r = renderSection(cp, cat.middle, data.current); majorCurText += r.t; majorCurHtml += r.h; }
+          if (mode === 'all' || mode === 'next') { const r = renderSection(cp, cat.middle, data.next); majorNxtText += r.t; majorNxtHtml += r.h; }
+        });
+      }
 
       if (mode === 'all') {
         text += `${majorCurText.trim()}\t${majorNxtText.trim()}\n`;
@@ -169,6 +189,25 @@ export default function SummaryPage() {
 
   const handleCopy = (mode: 'all' | 'current' | 'next', major: string | null = null) => {
     const { text, html } = generateCopyData(mode, major);
+    if (!text) { alert('복사할 내용이 없습니다.'); return; }
+    if (navigator.clipboard && window.isSecureContext && window.ClipboardItem) {
+      navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]).then(() => alert('복사 완료')).catch(() => alert('복사 실패'));
+    } else {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); alert('복사 완료');
+    }
+  };
+
+  const handleCopyExcludeEmpty = () => {
+    if (!aggregatedMap) return;
+    const newExclude: Record<number, boolean> = {};
+    categories.forEach(cat => {
+      const data = aggregatedMap[cat.id] || { current: [], next: [] };
+      if (data.current.length === 0 && data.next.length === 0) {
+        newExclude[cat.id] = true;
+      }
+    });
+    setCopyExclude(newExclude);
+    const { text, html } = generateCopyData('all', null, newExclude, true);
     if (!text) { alert('복사할 내용이 없습니다.'); return; }
     if (navigator.clipboard && window.isSecureContext && window.ClipboardItem) {
       navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]).then(() => alert('복사 완료')).catch(() => alert('복사 실패'));
@@ -307,6 +346,7 @@ export default function SummaryPage() {
               <button onClick={() => handleCopy('all')} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>전체 복사</button>
               <button onClick={() => handleCopy('current')} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white', opacity: 0.9 }}>금주만 복사</button>
               <button onClick={() => handleCopy('next')} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white', opacity: 0.9 }}>차주만 복사</button>
+              <button onClick={handleCopyExcludeEmpty} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: '#f59e0b', color: 'white', border: 'none' }}>내용없음 빼고 복사</button>
             </div>
           )}
         </div>
@@ -400,9 +440,20 @@ export default function SummaryPage() {
                           )}
                         </td>
                       )}
-                      <td style={{ fontWeight: 500 }}>({idx + 1}) {cat.middle}</td>
-                      <td style={{ verticalAlign: 'top', padding: '0.8rem' }}>{renderReadOnlyBlocks(data.current)}</td>
-                      <td style={{ verticalAlign: 'top', padding: '0.8rem' }}>{renderReadOnlyBlocks(data.next)}</td>
+                      <td style={{ fontWeight: 500, opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'rgba(0,0,0,0.03)' : undefined }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          {showCopyButtons && (
+                            <input type="checkbox" checked={!copyExclude[cat.id]} onChange={() => setCopyExclude(prev => {
+                              const next = { ...prev };
+                              if (next[cat.id]) { delete next[cat.id]; } else { next[cat.id] = true; }
+                              return next;
+                            })} style={{ cursor: 'pointer', accentColor: 'var(--primary)' }} title="복사 포함/제외" />
+                          )}
+                          ({idx + 1}) {cat.middle}
+                        </div>
+                      </td>
+                      <td style={{ verticalAlign: 'top', padding: '0.8rem', opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'rgba(0,0,0,0.03)' : undefined }}>{renderReadOnlyBlocks(data.current)}</td>
+                      <td style={{ verticalAlign: 'top', padding: '0.8rem', opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'rgba(0,0,0,0.03)' : undefined }}>{renderReadOnlyBlocks(data.next)}</td>
                     </tr>
                   );
                 });
