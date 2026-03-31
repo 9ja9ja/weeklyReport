@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    date: '2026-03-31',
+    title: 'v2.1 복사 제외 기능 + 사용안함 관리',
+    items: [
+      '취합본 잠금 시 중메뉴별 체크박스로 복사 포함/제외 선택',
+      '\'내용없음 빼고 복사\' 버튼 (금주/차주 독립 필터링 + 번호 자동 재정렬)',
+      '설정 페이지 대분류/중분류 \'사용안함\' 버튼 추가 (삭제와 별도)',
+    ]
+  },
+  {
     date: '2026-03-28',
     title: 'v2.0 팀 구조 및 권한 시스템',
     items: [
