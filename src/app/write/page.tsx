@@ -124,9 +124,9 @@ function WriteContent() {
       categoryId: parseInt(catId),
       currentContents: reportData[parseInt(catId)]?.current || [],
       nextContents: reportData[parseInt(catId)]?.next || []
-    })).filter(item => item.currentContents.length > 0 || item.nextContents.length > 0);
+    }));
 
-    if (items.length === 0) { alert('저장할 내용이 없습니다.'); return; }
+    if (Object.keys(reportData).length === 0) { alert('저장할 내용이 없습니다.'); return; }
     setShowConfirm(true);
   };
 
@@ -138,7 +138,7 @@ function WriteContent() {
         categoryId: parseInt(catId),
         currentContents: reportData[parseInt(catId)]?.current || [],
         nextContents: reportData[parseInt(catId)]?.next || []
-      })).filter(item => item.currentContents.length > 0 || item.nextContents.length > 0);
+      }));
 
       const res = await fetch('/api/reports', {
         method: 'POST',

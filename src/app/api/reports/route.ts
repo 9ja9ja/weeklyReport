@@ -56,12 +56,29 @@ export async function POST(request: Request) {
       });
 
       for (const item of items) {
-        const currentStr = typeof item.currentContents === 'string' ? item.currentContents : JSON.stringify(item.currentContents);
-        const nextStr = typeof item.nextContents === 'string' ? item.nextContents : JSON.stringify(item.nextContents);
-        await tx.reportItem.upsert({
-          where: { reportId_categoryId: { reportId: report.id, categoryId: item.categoryId } },
-          update: { currentContents: currentStr, nextContents: nextStr },
-          create: { reportId: report.id, categoryId: item.categoryId, currentContents: currentStr, nextContents: nextStr }
+        const currentArr = Array.isArray(item.currentContents) ? item.currentContents : JSON.parse(item.currentContents || '[]');
+        const nextArr = Array.isArray(item.nextContents) ? item.nextContents : JSON.parse(item.nextContents || '[]');
+        const currentStr = JSON.stringify(currentArr);
+        const nextStr = JSON.stringify(nextArr);
+
+        if (currentArr.length === 0 && nextArr.length === 0) {
+          await tx.reportItem.deleteMany({
+            where: { reportId: report.id, categoryId: item.categoryId }
+          });
+        } else {
+          await tx.reportItem.upsert({
+            where: { reportId_categoryId: { reportId: report.id, categoryId: item.categoryId } },
+            update: { currentContents: currentStr, nextContents: nextStr },
+            create: { reportId: report.id, categoryId: item.categoryId, currentContents: currentStr, nextContents: nextStr }
+          });
+        }
+      }
+
+      // 전송되지 않은 기존 항목도 삭제
+      const sentCategoryIds = items.map((i: { categoryId: number }) => i.categoryId);
+      if (sentCategoryIds.length > 0) {
+        await tx.reportItem.deleteMany({
+          where: { reportId: report.id, categoryId: { notIn: sentCategoryIds } }
         });
       }
 
