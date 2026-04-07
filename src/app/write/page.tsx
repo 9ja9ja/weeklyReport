@@ -187,6 +187,20 @@ function WriteContent() {
     updateState(catId, type, list => { const nb = [...list[si].bullets]; const [it] = nb.splice(from, 1); nb.splice(to, 0, it); return list.map((b, i) => i === si ? { ...b, bullets: nb } : b); });
   };
 
+  const copyCurrentToNext = (catId: number) => {
+    if (isLocked) return;
+    const currentBlocks = reportData[catId]?.current || [];
+    if (currentBlocks.length === 0) return;
+    const existingNext = reportData[catId]?.next || [];
+    if (existingNext.length > 0 && !confirm('기존 차주 내용을 덮어씁니다. 계속하시겠습니까?')) return;
+    const copied = currentBlocks.map(block => ({
+      id: generateId(),
+      subText: block.subText,
+      bullets: block.bullets.map(b => ({ id: generateId(), text: b.text }))
+    }));
+    updateState(catId, 'next', () => copied);
+  };
+
   const renderBlocks = (catId: number, type: 'current'|'next', blocks: SubBlock[], isReadonly = false) => {
     const ro = isReadonly || isLocked;
     if (!blocks || blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>내용 없음</span>;
@@ -313,7 +327,12 @@ function WriteContent() {
                         {!isLocked && <button onClick={() => addSub(cat.id, 'current')} className="btn" style={{ fontSize: '0.8rem', marginTop: '1.5rem', background: 'var(--btn-bg)', color: 'var(--foreground)', width: '100%' }}>+ 소분류 추가</button>}
                       </div>
                       <div className="inner-box" style={{ borderTopColor: 'var(--primary)' }}>
-                        <h4 style={{ color: 'var(--primary)', marginBottom: '1.2rem', fontWeight: 800, fontSize: '0.95rem' }}>[이번 주] 차주 진행예정사항</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                          <h4 style={{ color: 'var(--primary)', fontWeight: 800, fontSize: '0.95rem', margin: 0 }}>[이번 주] 차주 진행예정사항</h4>
+                          {!isLocked && (reportData[cat.id]?.current?.length ?? 0) > 0 && (
+                            <button onClick={() => copyCurrentToNext(cat.id)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', background: 'var(--btn-bg)', color: 'var(--foreground)', border: '1px solid var(--border)' }}>📋 금주내용 복사</button>
+                          )}
+                        </div>
                         {renderBlocks(cat.id, 'next', reportData[cat.id]?.next || [])}
                         {!isLocked && <button onClick={() => addSub(cat.id, 'next')} className="btn" style={{ fontSize: '0.8rem', marginTop: '1.5rem', background: 'var(--btn-bg)', color: 'var(--foreground)', width: '100%' }}>+ 소분류 추가</button>}
                       </div>
