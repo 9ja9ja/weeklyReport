@@ -30,6 +30,8 @@ export default function SummaryPage() {
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
   const [dragOverBulletId, setDragOverBulletId] = useState<string | null>(null);
   const [copyExclude, setCopyExclude] = useState<Record<number, boolean>>({});
+  const [includeEmpty, setIncludeEmpty] = useState(true);
+  const [includeAuthor, setIncludeAuthor] = useState(true);
 
   const isEditMode = isMasterOrAbove && !isLocked;
   const showCopyButtons = isLocked;
@@ -130,7 +132,7 @@ export default function SummaryPage() {
       let h = `<div>${cp} ${middle || ''}</div>`;
       blocks.forEach((block, i) => {
         const pf = i < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[i] : `(${i + 1})`;
-        const auth = block.authorText ? ` [${block.authorText}]` : '';
+        const auth = (includeAuthor && block.authorText) ? ` [${block.authorText}]` : '';
         t += `     ${pf} ${block.subText || ''}${auth}\n`;
         h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${pf} ${block.subText || ''}${auth}</div>`;
         block.bullets.forEach(bul => {
@@ -188,26 +190,18 @@ export default function SummaryPage() {
   };
 
   const handleCopy = (mode: 'all' | 'current' | 'next', major: string | null = null) => {
-    const { text, html } = generateCopyData(mode, major);
-    if (!text) { alert('복사할 내용이 없습니다.'); return; }
-    if (navigator.clipboard && window.isSecureContext && window.ClipboardItem) {
-      navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]).then(() => alert('복사 완료')).catch(() => alert('복사 실패'));
-    } else {
-      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); alert('복사 완료');
+    let excludeForCopy = copyExclude;
+    if (!includeEmpty && aggregatedMap) {
+      const newExclude: Record<number, boolean> = { ...copyExclude };
+      categories.forEach(cat => {
+        const data = aggregatedMap[cat.id] || { current: [], next: [] };
+        if (data.current.length === 0 && data.next.length === 0) {
+          newExclude[cat.id] = true;
+        }
+      });
+      excludeForCopy = newExclude;
     }
-  };
-
-  const handleCopyExcludeEmpty = () => {
-    if (!aggregatedMap) return;
-    const newExclude: Record<number, boolean> = {};
-    categories.forEach(cat => {
-      const data = aggregatedMap[cat.id] || { current: [], next: [] };
-      if (data.current.length === 0 && data.next.length === 0) {
-        newExclude[cat.id] = true;
-      }
-    });
-    setCopyExclude(newExclude);
-    const { text, html } = generateCopyData('all', null, newExclude, true);
+    const { text, html } = generateCopyData(mode, major, excludeForCopy, !includeEmpty);
     if (!text) { alert('복사할 내용이 없습니다.'); return; }
     if (navigator.clipboard && window.isSecureContext && window.ClipboardItem) {
       navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]).then(() => alert('복사 완료')).catch(() => alert('복사 실패'));
@@ -342,11 +336,19 @@ export default function SummaryPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={{ fontSize: '1.5rem', margin: 0 }}>주간보고 취합본</h2>
           {showCopyButtons && (
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeEmpty} onChange={() => setIncludeEmpty(v => !v)} style={{ cursor: 'pointer', accentColor: 'var(--primary)' }} />
+                내용없음 포함
+              </label>
+              <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeAuthor} onChange={() => setIncludeAuthor(v => !v)} style={{ cursor: 'pointer', accentColor: 'var(--primary)' }} />
+                작성자 포함
+              </label>
+              <div style={{ width: '1px', height: '1.2rem', background: '#ccc', margin: '0 0.25rem' }} />
               <button onClick={() => handleCopy('all')} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>전체 복사</button>
               <button onClick={() => handleCopy('current')} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white', opacity: 0.9 }}>금주만 복사</button>
               <button onClick={() => handleCopy('next')} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white', opacity: 0.9 }}>차주만 복사</button>
-              <button onClick={handleCopyExcludeEmpty} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: '#f59e0b', color: 'white', border: 'none' }}>내용없음 빼고 복사</button>
             </div>
           )}
         </div>
