@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    date: '2026-04-07',
+    title: 'v2.2 복사 옵션 체크박스화',
+    items: [
+      '\'내용없음 빼고 복사\' 버튼 제거 → 체크박스(내용없음 포함 / 작성자 포함)로 대체',
+      '작성자 포함 해제 시 복사 텍스트에서 [이름] 제거',
+      '두 옵션 조합 가능 (전체/금주/차주 복사 모두 적용)',
+    ]
+  },
+  {
     date: '2026-03-31',
     title: 'v2.1 복사 제외 기능 + 사용안함 관리',
     items: [
