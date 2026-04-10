@@ -116,7 +116,7 @@ export default function Home() {
       </div>
 
       {loading ? <p style={{ textAlign: 'center' }}>로딩중...</p> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+        <div className="home-grid">
           {teams.map(team => (
             <div key={team.id} className="glass-panel" style={{ padding: '1.5rem 2rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.6rem' }}>
@@ -163,7 +163,7 @@ export default function Home() {
 
       {/* 업데이트 노트 */}
       {changelog.length > 0 && (
-        <div style={{ marginTop: '2rem', padding: '1.5rem 2rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
+        <div style={{ marginTop: '2rem', padding: '1.5rem 2rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface-dim)' }}>
           <h4 style={{ margin: '0 0 1rem', fontSize: '0.95rem', color: 'var(--text-muted)' }}>업데이트 노트</h4>
           {changelog.slice(0, 5).map((entry, i) => (
             <div key={i} style={{ marginBottom: '0.8rem', paddingBottom: '0.8rem', borderBottom: i < Math.min(changelog.length, 5) - 1 ? '1px dashed var(--border)' : 'none' }}>

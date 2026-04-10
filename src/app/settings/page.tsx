@@ -191,7 +191,7 @@ export default function SettingsPage() {
 
       {/* superAdmin: 팀 선택 드롭다운 */}
       {isSuperAdmin && teams.length > 0 && (
-        <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(79,70,229,0.04)' }}>
+        <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--primary-alpha-subtle)' }}>
           <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>관리 대상 팀:</span>
           <select value={selectedTeamId || ''} onChange={e => setSelectedTeamId(parseInt(e.target.value))}
             className="input-field" style={{ padding: '0.4rem 0.8rem', fontSize: '0.95rem', fontWeight: 600, minWidth: '150px' }}>
@@ -227,7 +227,7 @@ export default function SettingsPage() {
             팀원 관리 {isSuperAdmin && <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 500 }}>— {activeTeamName}</span>}
           </h3>
           {users.map(user => (
-            <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
+            <div key={user.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ flex: 1, fontWeight: 600 }}>
                 {user.name}
                 {user.role === 'superAdmin' && <span style={{ background: '#dc2626', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>최고관리자</span>}
@@ -258,7 +258,7 @@ export default function SettingsPage() {
           </h3>
           {/* 활성 대분류 */}
           {majors.filter(m => m.isActive).map((m, idx) => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
+            <div key={m.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ flex: 1, fontWeight: 700, color: 'var(--primary)' }}>{m.name}</span>
               <button onClick={() => moveMajor(idx, -1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
               <button onClick={() => moveMajor(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === majors.filter(x => x.isActive).length - 1}>▼</button>
@@ -268,7 +268,7 @@ export default function SettingsPage() {
           ))}
           {/* 비활성 대분류 */}
           {majors.filter(m => !m.isActive).length > 0 && (
-            <div style={{ marginTop: '0.8rem', padding: '0.6rem 0.8rem', background: 'rgba(0,0,0,0.03)', borderRadius: '6px' }}>
+            <div style={{ marginTop: '0.8rem', padding: '0.6rem 0.8rem', background: 'var(--surface-dim)', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>사용안함 처리된 대분류</div>
               {majors.filter(m => !m.isActive).map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', opacity: 0.6 }}>
@@ -299,7 +299,7 @@ export default function SettingsPage() {
               <div key={major.id} style={{ marginBottom: '1.5rem' }}>
                 <h4 style={{ color: 'var(--primary)', marginBottom: '0.5rem', fontWeight: 700 }}>{major.name}</h4>
                 {activeCats.map((cat, idx) => (
-                  <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.8rem', borderBottom: '1px dashed var(--border)' }}>
+                  <div key={cat.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.8rem', borderBottom: '1px dashed var(--border)' }}>
                     <span style={{ fontWeight: 500, flex: 1 }}>({idx + 1}) {cat.middle}</span>
                     <button onClick={() => moveCategory(major.name, idx, -1)} className="btn" style={{ padding: '0.1rem 0.3rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
                     <button onClick={() => moveCategory(major.name, idx, 1)} className="btn" style={{ padding: '0.1rem 0.3rem', fontSize: '0.7rem' }} disabled={idx === activeCats.length - 1}>▼</button>
@@ -308,7 +308,7 @@ export default function SettingsPage() {
                   </div>
                 ))}
                 {inactiveCats.length > 0 && (
-                  <div style={{ marginTop: '0.4rem', padding: '0.4rem 0.8rem', background: 'rgba(0,0,0,0.03)', borderRadius: '4px' }}>
+                  <div style={{ marginTop: '0.4rem', padding: '0.4rem 0.8rem', background: 'var(--surface-dim)', borderRadius: '4px' }}>
                     {inactiveCats.map(cat => (
                       <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.2rem 0', opacity: 0.6 }}>
                         <span style={{ flex: 1, fontWeight: 400, textDecoration: 'line-through', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{cat.middle} (사용안함)</span>

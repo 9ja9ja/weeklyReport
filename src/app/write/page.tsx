@@ -15,6 +15,14 @@ type EditorState = Record<number, CateData>;
 
 interface Category { id: number; major: string; middle: string; orderIdx: number; }
 
+// API 응답 타입
+interface MajorResponse { id: number; name: string; orderIdx: number; }
+interface ReportItem {
+  categoryId: number;
+  currentContents: string | SubBlock[];
+  nextContents: string | SubBlock[];
+}
+
 function WriteContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -61,7 +69,7 @@ function WriteContent() {
     if (!teamId) return;
     const [catRes, majRes] = await Promise.all([fetch(`/api/categories?teamId=${teamId}`), fetch(`/api/majors?teamId=${teamId}`)]);
     const cd = await catRes.json(); setCategories(Array.isArray(cd) ? cd : []);
-    const md = await majRes.json(); setMajors(Array.isArray(md) ? md.map((m: any) => m.name) : []);
+    const md = await majRes.json(); setMajors(Array.isArray(md) ? md.map((m: MajorResponse) => m.name) : []);
   };
 
   const fetchReportsForWeek = async () => {
@@ -80,7 +88,7 @@ function WriteContent() {
 
       const prevMap: EditorState = {};
       if (prevData?.items) {
-        prevData.items.forEach((item: any) => {
+        prevData.items.forEach((item: ReportItem) => {
           prevMap[item.categoryId] = {
             current: typeof item.currentContents === 'string' ? JSON.parse(item.currentContents) : item.currentContents,
             next: typeof item.nextContents === 'string' ? JSON.parse(item.nextContents) : item.nextContents,
@@ -94,7 +102,7 @@ function WriteContent() {
 
       if (curData?.items && curData.items.length > 0) {
         const curMap: EditorState = {};
-        curData.items.forEach((item: any) => {
+        curData.items.forEach((item: ReportItem) => {
           curMap[item.categoryId] = {
             current: typeof item.currentContents === 'string' ? JSON.parse(item.currentContents) : item.currentContents,
             next: typeof item.nextContents === 'string' ? JSON.parse(item.nextContents) : item.nextContents,
@@ -104,7 +112,7 @@ function WriteContent() {
       } else {
         const curMap: EditorState = {};
         if (prevData?.items) {
-          prevData.items.forEach((item: any) => {
+          prevData.items.forEach((item: ReportItem) => {
             const lastNext = typeof item.nextContents === 'string' ? JSON.parse(item.nextContents) : item.nextContents;
             curMap[item.categoryId] = { current: lastNext, next: [] };
           });
@@ -201,6 +209,30 @@ function WriteContent() {
     updateState(catId, 'next', () => copied);
   };
 
+  // textarea 높이 자동 조절 헬퍼
+  const handleTextareaResize = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const t = e.currentTarget;
+    t.style.height = 'auto';
+    t.style.height = `${t.scrollHeight}px`;
+  };
+
+  // 데이터 로드 후 모든 textarea 높이 재계산 (double RAF: 레이아웃 완료 보장)
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    requestAnimationFrame(() => {
+      if (cancelled) return;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        document.querySelectorAll<HTMLTextAreaElement>('.write-columns textarea, .inner-box textarea').forEach(ta => {
+          ta.style.height = 'auto';
+          ta.style.height = `${ta.scrollHeight}px`;
+        });
+      });
+    });
+    return () => { cancelled = true; };
+  }, [loading]);
+
   const renderBlocks = (catId: number, type: 'current'|'next', blocks: SubBlock[], isReadonly = false) => {
     const ro = isReadonly || isLocked;
     if (!blocks || blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>내용 없음</span>;
@@ -220,7 +252,7 @@ function WriteContent() {
             <div style={{ flex: 1, padding: '0.4rem 0.2rem', fontWeight: 600, fontSize: '0.88rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: '34px' }}>{block.subText}</div>
           ) : (
             <textarea value={block.subText} onChange={e => setSubText(catId, type, idx, e.target.value)} className="input-field" placeholder="소분류 내용을 입력하세요..." rows={1}
-              onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; }}
+              onInput={handleTextareaResize}
               style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }} />
           )}
           {!ro && <>
@@ -243,7 +275,7 @@ function WriteContent() {
               <div style={{ flex: 1, padding: '0.25rem 0.5rem', fontSize: '0.88rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: '30px' }}>{bul.text}</div>
             ) : (
               <textarea value={bul.text} onChange={e => setBulletText(catId, type, idx, bid, e.target.value)} className="input-field" placeholder="내용을 입력하세요..." rows={1}
-                onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; }}
+                onInput={handleTextareaResize}
                 style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottomStyle: 'dashed', borderBottomWidth: '1px', fontSize: '0.88rem', resize: 'none', minHeight: '30px', overflow: 'hidden' }} />
             )}
             {!ro && <button onClick={() => removeBullet(catId, type, idx, bid)} className="icon-btn del">✕</button>}
@@ -278,7 +310,7 @@ function WriteContent() {
         </div>
       )}
 
-      <div className="glass-panel" style={{ padding: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+      <div className="glass-panel write-header" style={{ padding: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div>
           <h2 style={{ marginBottom: '0.5rem' }}>{userName}님의 주간보고</h2>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -286,7 +318,7 @@ function WriteContent() {
             <label>주차: <input type="number" value={weekNum} onChange={e => setWeekNum(parseInt(e.target.value, 10))} className="input-field" style={{ width: '80px', marginLeft: '0.5rem', padding: '0.3rem' }} /></label>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div className="write-actions" style={{ display: 'flex', gap: '1rem' }}>
           {!isLocked && <>
             <button onClick={undo} disabled={!canUndo} className="btn" style={{ fontSize: '0.9rem' }}>↶ 실행취소</button>
             <button onClick={redo} disabled={!canRedo} className="btn" style={{ fontSize: '0.9rem' }}>↷ 다시실행</button>
@@ -306,11 +338,11 @@ function WriteContent() {
                 <h3 style={{ fontSize: '1.3rem', color: 'var(--primary)', marginBottom: '1.5rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>{major}</h3>
                 {majorCats.map((cat, idx) => (
                   <div key={cat.id} style={{ marginBottom: '2rem' }}>
-                    <div style={{ fontWeight: 600, fontSize: '1.1rem', marginBottom: '1rem', background: 'rgba(0,0,0,0.03)', padding: '0.5rem 1rem', borderRadius: '4px' }}>
+                    <div style={{ fontWeight: 600, fontSize: '1.1rem', marginBottom: '1rem', background: 'var(--surface-dim)', padding: '0.5rem 1rem', borderRadius: '4px' }}>
                       ({idx + 1}) {cat.middle}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem' }}>
-                      <div className="inner-box" style={{ background: 'rgba(0,0,0,0.02)' }}>
+                    <div className="write-columns">
+                      <div className="inner-box write-col-prev" style={{ background: 'var(--surface-dim)' }}>
                         <h4 style={{ color: 'var(--text-muted)', marginBottom: '1.2rem', fontWeight: 700, fontSize: '0.9rem', opacity: 0.7 }}>[지난 주 작성본]</h4>
                         <div style={{ marginBottom: '1.5rem' }}>
                           <h5 style={{ marginBottom: '1rem', fontSize: '0.95rem', borderLeft: '3px solid var(--border)', paddingLeft: '0.5rem' }}>금주 진행사항</h5>

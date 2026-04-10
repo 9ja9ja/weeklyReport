@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
@@ -7,25 +8,29 @@ import { useUser } from '@/lib/UserContext';
 export default function Navigation() {
   const { userId, userName, teamName, role, clearUser, isMasterOrAbove, isSuperAdmin } = useUser();
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = () => { clearUser(); router.push('/'); };
+  const closeMenu = () => setMenuOpen(false);
 
   const roleLabel = role === 'superAdmin' ? '최고관리자' : role === 'teamMaster' ? '관리자' : '';
 
   return (
-    <nav style={{
-      background: 'var(--panel-bg)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--panel-border)',
-      padding: '1rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 10
-    }}>
-      <div style={{ fontWeight: 700, fontSize: '1.25rem' }}>
+    <nav className="nav-bar">
+      <div className="nav-brand">
         <Link href={userId ? '/dashboard' : '/'}>팀 주간보고</Link>
       </div>
-      <div style={{ display: 'flex', gap: '1.5rem', fontWeight: 500, alignItems: 'center' }}>
-        {userId && <Link href="/dashboard">홈</Link>}
-        {userId && <Link href="/summary">취합본</Link>}
-        {isMasterOrAbove && <Link href="/settings" style={{ color: 'var(--primary)' }}>설정</Link>}
+      {userId && (
+        <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="메뉴">
+          {menuOpen ? '✕' : '☰'}
+        </button>
+      )}
+      <div className={`nav-links${menuOpen ? ' open' : ''}`}>
+        {userId && <Link href="/dashboard" onClick={closeMenu}>홈</Link>}
+        {userId && <Link href="/summary" onClick={closeMenu}>취합본</Link>}
+        {isMasterOrAbove && <Link href="/settings" onClick={closeMenu} style={{ color: 'var(--primary)' }}>설정</Link>}
         {userId && (
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <span style={{ color: 'var(--foreground)', fontWeight: 600 }}>{teamName}</span>
             {userName}
             {roleLabel && <span style={{ background: 'var(--primary)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem' }}>{roleLabel}</span>}

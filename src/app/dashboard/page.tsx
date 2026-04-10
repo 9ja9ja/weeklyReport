@@ -89,7 +89,7 @@ export default function DashboardPage() {
         <div style={{ textAlign: 'center', fontWeight: 700, marginBottom: '0.5rem', fontSize: '1.05rem' }}>{year}년 {month + 1}월</div>
         <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
           <thead><tr>{['일','월','화','수','목','금','토'].map(d => <th key={d} style={{ padding: '0.4rem', textAlign: 'center', color: d === '일' ? '#ef4444' : d === '토' ? '#3b82f6' : 'var(--foreground)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>{d}</th>)}</tr></thead>
-          <tbody>{weeks.map((w, wi) => (<tr key={wi}>{w.map((day, di) => (<td key={di} style={{ padding: '0.4rem', textAlign: 'center', background: isCurrentWeekDay(day) ? 'rgba(79,70,229,0.25)' : 'transparent', fontWeight: isToday(day) ? 800 : 400, color: isToday(day) ? 'var(--primary)' : di === 0 ? '#ef4444' : di === 6 ? '#3b82f6' : 'var(--foreground)' }}>{day || ''}</td>))}</tr>))}</tbody>
+          <tbody>{weeks.map((w, wi) => (<tr key={wi}>{w.map((day, di) => (<td key={di} style={{ padding: '0.4rem', textAlign: 'center', background: isCurrentWeekDay(day) ? 'var(--primary-alpha-focus)' : 'transparent', fontWeight: isToday(day) ? 800 : 400, color: isToday(day) ? 'var(--primary)' : di === 0 ? '#ef4444' : di === 6 ? '#3b82f6' : 'var(--foreground)' }}>{day || ''}</td>))}</tr>))}</tbody>
         </table>
       </div>
     );
@@ -111,7 +111,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="glass-panel" style={{ padding: '2rem' }}>
-        <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+        <div className="dashboard-calendar-wrap" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
           {renderCalendar(currentYear, currentMonth)}
           {renderCalendar(nextMonthYear, nextMonth)}
         </div>
@@ -120,17 +120,17 @@ export default function DashboardPage() {
 
       <div className="glass-panel" style={{ padding: '2rem' }}>
         <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>주간보고 현황</h3>
-        <div style={{ display: 'flex', padding: '0.5rem 1rem', fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ width: '60px' }}>주차</div><div style={{ flex: 1 }}>기간</div><div style={{ width: '80px', textAlign: 'center' }}>상태</div><div style={{ width: '120px', textAlign: 'center' }}>최종작성일시</div><div style={{ width: '120px', textAlign: 'center' }}></div>
+        <div className="dashboard-status-header" style={{ display: 'flex', padding: '0.5rem 1rem', fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ width: '60px' }}>주차</div><div className="status-period" style={{ flex: 1 }}>기간</div><div style={{ width: '80px', textAlign: 'center' }}>상태</div><div style={{ width: '120px', textAlign: 'center' }}>최종작성일시</div><div style={{ width: '120px', textAlign: 'center' }}></div>
         </div>
         {weekStatuses.map(ws => {
           const { monday, friday } = getWeekRange(ws.year, ws.weekNum);
           const isCurrent = ws.year === currentYear && ws.weekNum === currentWeek;
           return (
-            <div key={`${ws.year}-${ws.weekNum}`}
-              style={{ display: 'flex', alignItems: 'center', padding: '0.7rem 1rem', borderBottom: '1px solid var(--border)', background: isCurrent ? 'rgba(79,70,229,0.04)' : 'transparent' }}>
+            <div key={`${ws.year}-${ws.weekNum}`} className="dashboard-status-row"
+              style={{ display: 'flex', alignItems: 'center', padding: '0.7rem 1rem', borderBottom: '1px solid var(--border)', background: isCurrent ? 'var(--primary-alpha-subtle)' : 'transparent' }}>
               <div style={{ width: '60px', fontWeight: isCurrent ? 700 : 500, color: isCurrent ? 'var(--primary)' : 'var(--foreground)' }}>{ws.weekNum}주차{isCurrent && ' ★'}</div>
-              <div style={{ flex: 1, fontSize: '0.9rem', color: 'var(--text-muted)' }}>{formatDateShort(monday)} ~ {formatDateShort(friday)}</div>
+              <div className="status-period" style={{ flex: 1, fontSize: '0.9rem', color: 'var(--text-muted)' }}>{formatDateShort(monday)} ~ {formatDateShort(friday)}</div>
               <div style={{ width: '80px', textAlign: 'center' }}>
                 {ws.isLocked
                   ? <span style={{ color: 'var(--primary)', fontWeight: 700 }}>취합완료</span>
@@ -139,7 +139,7 @@ export default function DashboardPage() {
                     : <span style={{ color: '#ef4444', fontWeight: 600 }}>미작성</span>}
               </div>
               <div style={{ width: '120px', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{formatDT(ws.updatedAt)}</div>
-              <div style={{ width: '120px', textAlign: 'center', display: 'flex', gap: '0.3rem', justifyContent: 'center' }}>
+              <div className="status-actions" style={{ width: '120px', textAlign: 'center', display: 'flex', gap: '0.3rem', justifyContent: 'center' }}>
                 {ws.hasReport && (
                   <button onClick={() => openWeekModal(ws.year, ws.weekNum)} className="btn" style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}>보기</button>
                 )}

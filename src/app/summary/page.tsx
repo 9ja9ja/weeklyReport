@@ -13,6 +13,13 @@ type EditorState = Record<number, CateData>;
 interface Category { id: number; major: string; middle: string; orderIdx: number; }
 interface MajorInfo { id: number; name: string; orderIdx: number; }
 
+// API 응답 타입
+interface ReportItem {
+  categoryId: number;
+  currentContents: string | SubBlock[];
+  nextContents: string | SubBlock[];
+}
+
 export default function SummaryPage() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [weekNum, setWeekNum] = useState(getWeekNumber(new Date()));
@@ -46,7 +53,7 @@ export default function SummaryPage() {
       if (Array.isArray(repData)) {
         repData.forEach(report => {
           const userName = report.user.name;
-          (report.items || []).forEach((item: any) => {
+          (report.items || []).forEach((item: ReportItem) => {
             if (!map[item.categoryId]) map[item.categoryId] = { current: [], next: [] };
             const cur: SubBlock[] = (typeof item.currentContents === 'string' ? JSON.parse(item.currentContents) : item.currentContents) ?? [];
             const nxt: SubBlock[] = (typeof item.nextContents === 'string' ? JSON.parse(item.nextContents) : item.nextContents) ?? [];
@@ -270,6 +277,24 @@ export default function SummaryPage() {
     el.style.height = `${el.scrollHeight}px`;
   };
 
+  // 데이터 로드 후 모든 textarea 높이 재계산
+  // double RAF: 1차 RAF에서 레이아웃 계산 → 2차 RAF에서 높이 적용
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    requestAnimationFrame(() => {
+      if (cancelled) return;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        document.querySelectorAll<HTMLTextAreaElement>('.summary-table textarea').forEach(ta => {
+          ta.style.height = 'auto';
+          ta.style.height = `${ta.scrollHeight}px`;
+        });
+      });
+    });
+    return () => { cancelled = true; };
+  }, [loading]);
+
   const renderEditBlocks = (catId: number, type: 'current' | 'next', blocks: SubBlock[]) => {
     if (!blocks || blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', paddingLeft: '2rem' }}>내용 없음</span>;
     return blocks.map((block, idx) => (
@@ -338,8 +363,8 @@ export default function SummaryPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+      <div className="summary-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div className="summary-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={{ fontSize: '1.5rem', margin: 0 }}>주간보고 취합본</h2>
           {showCopyButtons && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -381,8 +406,9 @@ export default function SummaryPage() {
 
       {loading ? <p>데이터를 불러오는 중입니다...</p> : isEditMode ? (
         /* ── 편집 모드 (마스터 + 미잠금) ── */
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ minWidth: '1000px' }}>
+        <><p className="scroll-hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.5rem' }}>↔ 좌우로 스크롤하세요</p>
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table className="summary-table">
             <thead>
               <tr>
                 <th style={{ width: '10%' }}>분류</th>
@@ -417,11 +443,12 @@ export default function SummaryPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </div></>
       ) : (
         /* ── 읽기전용 모드 ── */
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ minWidth: '1000px' }}>
+        <><p className="scroll-hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.5rem' }}>↔ 좌우로 스크롤하세요</p>
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <table className="summary-table">
             <thead>
               <tr>
                 <th style={{ width: '10%' }}>분류</th>
@@ -448,7 +475,7 @@ export default function SummaryPage() {
                           )}
                         </td>
                       )}
-                      <td style={{ fontWeight: 500, opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'rgba(0,0,0,0.03)' : undefined }}>
+                      <td style={{ fontWeight: 500, opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'var(--surface-dim)' : undefined }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                           {showCopyButtons && (
                             <input type="checkbox" checked={!copyExclude[cat.id]} onChange={() => setCopyExclude(prev => {
@@ -460,15 +487,15 @@ export default function SummaryPage() {
                           ({idx + 1}) {cat.middle}
                         </div>
                       </td>
-                      <td style={{ verticalAlign: 'top', padding: '0.8rem', opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'rgba(0,0,0,0.03)' : undefined }}>{renderReadOnlyBlocks(data.current)}</td>
-                      <td style={{ verticalAlign: 'top', padding: '0.8rem', opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'rgba(0,0,0,0.03)' : undefined }}>{renderReadOnlyBlocks(data.next)}</td>
+                      <td style={{ verticalAlign: 'top', padding: '0.8rem', opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'var(--surface-dim)' : undefined }}>{renderReadOnlyBlocks(data.current)}</td>
+                      <td style={{ verticalAlign: 'top', padding: '0.8rem', opacity: copyExclude[cat.id] ? 0.4 : 1, background: copyExclude[cat.id] ? 'var(--surface-dim)' : undefined }}>{renderReadOnlyBlocks(data.next)}</td>
                     </tr>
                   );
                 });
               })}
             </tbody>
           </table>
-        </div>
+        </div></>
       )}
     </div>
   );

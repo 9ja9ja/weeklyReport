@@ -14,6 +14,14 @@
   
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --radius: 12px;
+
+  /* Alpha 배경색 — light mode */
+  --primary-alpha-subtle: rgba(79, 70, 229, 0.04);   /* 행 호버, 강조 배경 */
+  --primary-alpha-light: rgba(99, 102, 241, 0.06);    /* 드래그 오버 */
+  --primary-alpha-focus: rgba(99, 102, 241, 0.12);    /* 아이콘 호버 */
+  --danger-alpha: rgba(239, 68, 68, 0.1);             /* 삭제 호버 */
+  --surface-dim: rgba(0, 0, 0, 0.03);                 /* 약한 배경 구분 */
+  --overlay-bg: rgba(0, 0, 0, 0.5);                   /* 모달 오버레이 */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,6 +38,14 @@
     --text-muted: #94a3b8;
     --border: #475569;
     --btn-bg: #334155;
+
+    /* Alpha 배경색 — dark mode */
+    --primary-alpha-subtle: rgba(129, 140, 248, 0.06);
+    --primary-alpha-light: rgba(129, 140, 248, 0.08);
+    --primary-alpha-focus: rgba(129, 140, 248, 0.15);
+    --danger-alpha: rgba(239, 68, 68, 0.15);
+    --surface-dim: rgba(255, 255, 255, 0.03);
+    --overlay-bg: rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -117,11 +133,11 @@ a {
   font-weight: 700;
 }
 .icon-btn.add:hover {
-  background: rgba(99, 102, 241, 0.12);
+  background: var(--primary-alpha-focus);
 }
 .icon-btn.del:hover {
   color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-alpha);
 }
 
 .drag-handle {
@@ -146,7 +162,7 @@ a {
 }
 .drag-block.drag-over {
   border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.06);
+  background: var(--primary-alpha-light);
 }
 .drag-block.dragging {
   opacity: 0.4;
@@ -197,18 +213,12 @@ a {
 .input-field:focus {
   outline: none;
   border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.03);
+  background: var(--primary-alpha-subtle);
 }
 
 .input-field::placeholder {
   color: var(--text-muted);
   opacity: 0.5;
-}
-
-@media (prefers-color-scheme: dark) {
-  .input-field:focus {
-    background: rgba(129, 140, 248, 0.05);
-  }
 }
 
 /* Table styles for summary view */
@@ -226,14 +236,8 @@ th, td {
 }
 
 th {
-  background-color: rgba(0, 0, 0, 0.03);
+  background-color: var(--surface-dim);
   font-weight: 600;
-}
-
-@media (prefers-color-scheme: dark) {
-  th {
-    background-color: rgba(255, 255, 255, 0.03);
-  }
 }
 
 /* Modal Styles */
@@ -243,7 +247,7 @@ th {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--overlay-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -332,7 +336,7 @@ th {
 
 /* 유저 행 호버 */
 .user-row:hover {
-  background: rgba(79, 70, 229, 0.04);
+  background: var(--primary-alpha-subtle);
 }
 
 /* 모달 오버레이 클릭 가능하도록 */
@@ -344,4 +348,243 @@ th {
 select.input-field option {
   background: var(--panel-bg, #1e293b);
   color: var(--foreground, #f1f5f9);
+}
+
+/* ===== Navigation ===== */
+.nav-bar {
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--panel-border);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.nav-brand { font-weight: 700; font-size: 1.25rem; }
+.nav-links {
+  display: flex;
+  gap: 1.5rem;
+  font-weight: 500;
+  align-items: center;
+}
+.nav-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  cursor: pointer;
+  color: var(--foreground);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+/* ===== Responsive Grid Helpers ===== */
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+.write-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1.5rem;
+}
+.summary-table {
+  min-width: 1000px;
+}
+
+/* Scroll hint — 기본 숨김, 모바일에서만 표시 */
+.scroll-hint {
+  display: none;
+}
+
+/* ===== Mobile Responsive (768px) ===== */
+@media (max-width: 768px) {
+  /* Root font-size 축소 → 모든 rem 단위 자동 스케일링 (~87%) */
+  html {
+    font-size: 14px;  /* 기본 16px → 14px = 87.5% */
+  }
+
+  /* Container */
+  .container {
+    width: 100%;
+    padding: 1rem 0.75rem;
+  }
+
+  /* Touch targets */
+  .btn {
+    min-height: 36px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Prevent iOS zoom on input focus (px 단위로 root 스케일 영향 없음) */
+  .input-field {
+    font-size: 16px;
+  }
+
+  /* Modal — inline style 오버라이드 필요하여 !important 사용 */
+  .modal-content {
+    width: 95% !important;
+    max-width: none !important;
+    max-height: 90vh;
+    margin: 0.5rem;
+  }
+  .modal-header, .modal-body, .modal-footer {
+    padding: 1rem;
+  }
+
+  /* Glass panel — 통합 (border-radius + padding) */
+  .glass-panel {
+    border-radius: 8px;
+    padding: 0.75rem !important; /* inline style 오버라이드 */
+  }
+
+  /* Navigation */
+  .nav-bar {
+    padding: 0.7rem 1rem;
+    flex-wrap: wrap;
+  }
+  .nav-hamburger {
+    display: flex;
+  }
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    gap: 0;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--border);
+    margin-top: 0.8rem;
+  }
+  .nav-links.open {
+    display: flex;
+  }
+  .nav-links a, .nav-links > span {
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Home grid */
+  .home-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* Write page */
+  .write-columns {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  .write-col-prev {
+    display: none;
+  }
+  .write-col-prev.show {
+    display: block;
+  }
+  /* inline style 오버라이드 필요하여 !important 사용 */
+  .write-header {
+    flex-direction: column !important;
+    gap: 0.8rem !important;
+    align-items: stretch !important;
+  }
+  .write-actions {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .write-actions .btn {
+    flex: 1;
+    min-width: 60px;
+    text-align: center;
+  }
+
+  /* Write/Summary edit blocks — compact for mobile */
+  .icon-btn.add {
+    white-space: nowrap;
+    font-size: 0.65rem;
+    padding: 0 4px;
+    min-height: 28px;
+  }
+  .drag-handle {
+    display: none;
+  }
+
+  /* Summary page — 데스크톱 동일 너비 유지, 가로 스크롤 */
+  .summary-table th, .summary-table td {
+    padding: 0.4rem;
+    font-size: 0.8rem;
+  }
+  /* inline style 오버라이드 필요하여 !important 사용 */
+  .summary-header {
+    flex-direction: column !important;
+    gap: 0.8rem !important;
+    align-items: stretch !important;
+  }
+  .summary-actions {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .scroll-hint {
+    display: block;
+  }
+
+  /* Dashboard — inline style 오버라이드 필요하여 !important 사용 */
+  .dashboard-calendar-wrap {
+    flex-direction: column !important;
+  }
+  .dashboard-status-header {
+    display: none !important;
+  }
+  .dashboard-status-row {
+    flex-wrap: wrap !important;
+    gap: 0.4rem !important;
+    padding: 0.7rem 0.8rem !important;
+  }
+  .dashboard-status-row .status-period {
+    display: none !important;
+  }
+  .dashboard-status-row .status-actions {
+    width: 100%;
+    justify-content: flex-start !important;
+    margin-top: 0.3rem;
+  }
+
+  /* Table general */
+  th, td {
+    padding: 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  /* Inner boxes (write page columns) */
+  .inner-box {
+    padding: 1rem;
+  }
+
+  /* Settings */
+  .settings-row {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .settings-row .btn {
+    min-height: 36px;
+    font-size: 0.8rem;
+  }
+}
+
+/* ===== Extra small screens (400px 이하) ===== */
+@media (max-width: 400px) {
+  html {
+    font-size: 13px;  /* 81.25% — 아주 작은 화면 추가 축소 */
+  }
 }
