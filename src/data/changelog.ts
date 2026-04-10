@@ -6,6 +6,17 @@ export interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    date: '2026-04-11',
+    title: 'v2.3 모바일 반응형 + 코드 품질 개선',
+    items: [
+      '모바일 반응형 레이아웃 적용 (햄버거 메뉴, 1열 그리드, 가로 스크롤 테이블)',
+      '모바일 폰트 사이즈 자동 축소 (768px 이하 87.5%, 400px 이하 81.25%)',
+      '취합본/작성 페이지 textarea 첫 로드 시 높이 자동 맞춤 수정',
+      '다크모드 색상 일관성 향상 (rgba 하드코딩 → CSS 변수화)',
+      'API 응답 타입 안전성 강화 (any → 명시적 인터페이스)',
+    ]
+  },
+  {
     date: '2026-04-07',
     title: 'v2.2 복사 옵션 체크박스화',
     items: [
