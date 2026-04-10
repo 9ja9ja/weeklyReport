@@ -264,6 +264,12 @@ export default function SummaryPage() {
     ));
   };
 
+  const autoResize = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   const renderEditBlocks = (catId: number, type: 'current' | 'next', blocks: SubBlock[]) => {
     if (!blocks || blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', paddingLeft: '2rem' }}>내용 없음</span>;
     return blocks.map((block, idx) => (
@@ -283,8 +289,8 @@ export default function SummaryPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
           <span className="drag-handle">⠿</span>
           <span style={{ fontWeight: 700, minWidth: '1.4rem', color: 'var(--primary)', fontSize: '1rem', flexShrink: 0 }}>{idx < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[idx] : `(${idx + 1})`}</span>
-          <textarea value={block.subText} onChange={e => setSubText(catId, type, idx, e.target.value)} className="input-field" placeholder="소분류 내용..." rows={1}
-            onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; }}
+          <textarea ref={autoResize} value={block.subText} onChange={e => setSubText(catId, type, idx, e.target.value)} className="input-field" placeholder="소분류 내용..." rows={1}
+            onInput={e => autoResize(e.target as HTMLTextAreaElement)}
             style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }} />
           <span style={{ color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>[</span>
           <input value={block.authorText || ''} onChange={e => setAuthorText(catId, type, idx, e.target.value)} className="input-field"
@@ -312,8 +318,8 @@ export default function SummaryPage() {
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', paddingLeft: '2.2rem', marginTop: '0.3rem' }}>
             <span className="drag-handle" style={{ fontSize: '0.75rem' }}>⠿</span>
             <span style={{ fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>-</span>
-            <textarea value={bul.text} onChange={e => setBulletText(catId, type, idx, bid, e.target.value)} className="input-field" rows={1}
-              onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; }}
+            <textarea ref={autoResize} value={bul.text} onChange={e => setBulletText(catId, type, idx, bid, e.target.value)} className="input-field" rows={1}
+              onInput={e => autoResize(e.target as HTMLTextAreaElement)}
               style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottom: '1px dashed var(--border)', fontSize: '0.88rem', resize: 'none', minHeight: '30px', overflow: 'hidden', padding: '0.25rem 0.5rem' }} />
             <button onClick={() => removeBullet(catId, type, idx, bid)} className="icon-btn del">✕</button>
           </div>
