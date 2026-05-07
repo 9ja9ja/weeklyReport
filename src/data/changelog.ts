@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    date: '2026-05-07',
+    title: 'v2.4 취합본 작성 현황판 + DB 안정화',
+    items: [
+      '취합본 페이지에 팀원별 작성 현황판 추가 (완료/미작성 한눈에 확인)',
+      'Supabase DB 자동 정지 방지 keep-alive 크론 설정',
+    ]
+  },
+  {
     date: '2026-04-11',
     title: 'v2.3 모바일 반응형 + 코드 품질 개선',
     items: [

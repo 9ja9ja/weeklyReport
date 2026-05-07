@@ -39,6 +39,7 @@ export default function SummaryPage() {
   const [copyExclude, setCopyExclude] = useState<Record<number, boolean>>({});
   const [includeEmpty, setIncludeEmpty] = useState(true);
   const [includeAuthor, setIncludeAuthor] = useState(true);
+  const [teamUsers, setTeamUsers] = useState<{ id: number; name: string; role: string; hasReport: boolean; lastUpdated: string | null }[]>([]);
 
   const isEditMode = isMasterOrAbove && !isLocked;
   const showCopyButtons = isLocked;
@@ -70,13 +71,17 @@ export default function SummaryPage() {
     setLoading(true);
     try {
       if (!teamId) return;
-      const [catRes, majRes, sumRes] = await Promise.all([
+      const [catRes, majRes, sumRes, teamRes] = await Promise.all([
         fetch(`/api/categories?teamId=${teamId}`),
         fetch(`/api/majors?teamId=${teamId}`),
-        fetch(`/api/reports/summary?year=${year}&weekNum=${weekNum}&teamId=${teamId}`)
+        fetch(`/api/reports/summary?year=${year}&weekNum=${weekNum}&teamId=${teamId}`),
+        fetch(`/api/teams?withUsers=true&year=${year}&weekNum=${weekNum}`)
       ]);
       setCategories(await catRes.json());
       setMajors(await majRes.json());
+      const teamsData = await teamRes.json();
+      const myTeam = Array.isArray(teamsData) ? teamsData.find((t: any) => t.id === teamId) : null;
+      setTeamUsers(myTeam?.users ?? []);
       const sumData = await sumRes.json();
       setIsLocked(sumData?.isLocked ?? false);
       if (sumData?.contents) { setInitialState(JSON.parse(sumData.contents)); }
@@ -403,6 +408,31 @@ export default function SummaryPage() {
           </button>
         )}
       </div>
+
+      {!loading && teamUsers.length > 0 && (
+        <div className="glass-panel" style={{ padding: '0.8rem 1.2rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>작성 현황</span>
+            <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 600 }}>
+              {teamUsers.filter(u => u.hasReport).length}/{teamUsers.length}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {teamUsers.map(u => (
+              <span key={u.id} style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                padding: '0.25rem 0.6rem', borderRadius: '4px', fontSize: '0.82rem',
+                background: u.hasReport ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                color: u.hasReport ? '#16a34a' : '#dc2626',
+                fontWeight: 600
+              }}>
+                {u.name}
+                <span style={{ fontSize: '0.75rem' }}>{u.hasReport ? '완료' : '미작성'}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? <p>데이터를 불러오는 중입니다...</p> : isEditMode ? (
         /* ── 편집 모드 (마스터 + 미잠금) ── */
