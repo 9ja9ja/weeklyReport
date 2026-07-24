@@ -62,8 +62,8 @@ export default function Home() {
       const data = await res.json();
       const list: TeamWithUsers[] = Array.isArray(data) ? data : [];
       setTeams(list);
-      // 첫 진입 시 인원이 가장 많은 팀을 기본으로 펼쳐둔다
-      setSelectedTeamId(prev => prev ?? (list.length ? [...list].sort((a, b) => b.users.length - a.users.length)[0].id : null));
+      // 첫 진입 시 목록 첫 번째 팀(정렬순 1번)을 기본으로 펼쳐둔다
+      setSelectedTeamId(prev => prev ?? (list.length ? list[0].id : null));
     } catch { setTeams([]); }
     finally { setLoading(false); }
   };
