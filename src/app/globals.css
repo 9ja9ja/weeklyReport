@@ -385,11 +385,6 @@ select.input-field option {
 }
 
 /* ===== Responsive Grid Helpers ===== */
-.home-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.5rem;
-}
 .write-columns {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -398,10 +393,28 @@ select.input-field option {
 .summary-table {
   min-width: 1000px;
 }
+/* table-layout:fixed 에서 긴 단어가 셀을 넘지 않게 줄바꿈 */
+.summary-table td, .summary-table th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 /* Scroll hint — 기본 숨김, 모바일에서만 표시 */
 .scroll-hint {
   display: none;
+}
+
+/* ===== Tablet (1100px) — 홈 3열을 2열로 접고 명단은 아래 전체폭 ===== */
+@media (max-width: 1100px) {
+  .home-3col {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  }
+  .home-list {
+    grid-column: 1 / -1;
+  }
+  .home-side {
+    position: static !important;
+  }
 }
 
 /* ===== Mobile Responsive (768px) ===== */
@@ -409,6 +422,26 @@ select.input-field option {
   /* Root font-size 축소 → 모든 rem 단위 자동 스케일링 (~87%) */
   html {
     font-size: 14px;  /* 기본 16px → 14px = 87.5% */
+  }
+
+  /* 전체 취합본: 좁은 화면에선 팀 필터를 위로 쌓고 가로 스크롤 카드로 */
+  .overview-body {
+    flex-direction: column !important;
+  }
+  .overview-sidebar {
+    position: static !important;
+    width: 100% !important;
+  }
+  .overview-sidebar > div:last-child {
+    flex-direction: row !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.3rem;
+  }
+  .overview-sidebar > div:last-child > button {
+    flex: 0 0 auto;
+    min-width: 130px;
   }
 
   /* Container */
@@ -476,10 +509,18 @@ select.input-field option {
     border-bottom: 1px solid var(--border);
   }
 
-  /* Home grid */
-  .home-grid {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+  /* 홈 3열(달력 / 팀목록 / 명단) — 모바일에선 1열 */
+  .home-3col {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Dashboard — 관리자 팀원현황 패널을 아래로 */
+  .dashboard-layout {
+    flex-direction: column !important;
+  }
+  .dashboard-team-status {
+    width: 100% !important;
+    position: static !important;
   }
 
   /* Write page */

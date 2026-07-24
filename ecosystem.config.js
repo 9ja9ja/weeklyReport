@@ -4,7 +4,7 @@ module.exports = {
       name: 'antigravity',
       script: 'node_modules/next/dist/bin/next',
       args: 'start -p 3000 -H 0.0.0.0',
-      cwd: 'C:/AI IDE/Antigravity',
+      cwd: '/Users/jayoung/Work/projects/weekly-report',
       interpreter: 'node',
       env: {
         NODE_ENV: 'production',

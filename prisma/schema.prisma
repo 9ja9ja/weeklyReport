@@ -10,9 +10,13 @@ datasource db {
 model Team {
   id        Int      @id @default(autoincrement())
   name      String   @unique
+  division  String   @default("") // 문서 "구분": Pharos | 개발 | 영업 | 마케팅 | 운영 | PMO
+  orderIdx  Int      @default(0)
   createdAt DateTime @default(now())
 
   users           User[]
+  userTeams       UserTeam[]
+  parts           Part[]
   majorCategories MajorCategory[]
   categories      Category[]
   summaryData     SummaryData[]
@@ -22,19 +26,37 @@ model Team {
 model User {
   id           Int      @id @default(autoincrement())
   name         String
-  teamId       Int
+  teamId       Int // 주 소속팀
   team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   role         String   @default("user") // "superAdmin" | "teamMaster" | "user"
+  position     String   @default("") // 직급: 팀장 | 부팀장 | 매니저 | 프로
   password     String   @default("NOT_SET")
   mustChangePw Boolean  @default(true)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  reports      Report[]
+  reports   Report[]
+  userTeams UserTeam[]
 
   @@unique([teamId, name])
 }
 
-model MajorCategory {
+// 겸직 지원: 한 사람이 여러 팀의 보고 항목을 작성
+model UserTeam {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, teamId])
+  @@index([teamId])
+}
+
+// 문서 "분류1" — 대분류 위 레벨
+model Part {
   id        Int      @id @default(autoincrement())
   name      String
   teamId    Int
@@ -43,13 +65,35 @@ model MajorCategory {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  majorCategories MajorCategory[]
+  categories      Category[]
+
   @@unique([teamId, name])
 }
 
+// 문서 "분류2" — 대분류
+model MajorCategory {
+  id        Int      @id @default(autoincrement())
+  name      String
+  partId    Int
+  part      Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  orderIdx  Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([partId, name])
+  @@index([teamId])
+}
+
+// 문서 셀 내 "⑴" — 중분류
 model Category {
   id        Int      @id @default(autoincrement())
-  major     String
+  major     String // MajorCategory.name 과 대응
   middle    String
+  partId    Int
+  part      Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
   teamId    Int
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   orderIdx  Int      @default(0)
@@ -58,35 +102,36 @@ model Category {
 
   reportItems ReportItem[]
 
-  @@unique([teamId, major, middle])
+  @@unique([partId, major, middle])
+  @@index([teamId])
 }
 
 model Report {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  year      Int
-  weekNum   Int
+  id      Int @id @default(autoincrement())
+  userId  Int
+  user    User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year    Int
+  weekNum Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items     ReportItem[]
+  items ReportItem[]
 
   @@unique([userId, year, weekNum])
   @@index([year, weekNum])
 }
 
 model ReportItem {
-  id          Int      @id @default(autoincrement())
-  reportId    Int
-  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  categoryId  Int
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  currentContents String  @default("[]")
-  nextContents    String  @default("[]")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              Int      @id @default(autoincrement())
+  reportId        Int
+  report          Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  categoryId      Int
+  category        Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  currentContents String   @default("[]")
+  nextContents    String   @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([reportId, categoryId])
   @@index([categoryId])

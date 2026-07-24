@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { getWeekNumber, getWeekRange, formatDateShort } from '@/lib/weekUtils';
+import WeekCalendar from '@/components/WeekCalendar';
 
 interface WeekStatus { year: number; weekNum: number; hasReport: boolean; updatedAt: string | null; isLocked?: boolean; }
 interface Category { id: number; major: string; middle: string; }
@@ -12,26 +13,28 @@ type Bullet = { id: string; text: string };
 type SubBlock = { id: string; subText: string; bullets: Bullet[] };
 type CateData = { current: SubBlock[]; next: SubBlock[] };
 
+interface TeamMemberStatus { id: number; name: string; role: string; position?: string; isPrimary?: boolean; hasReport: boolean; lastUpdated: string | null; }
+
 export default function DashboardPage() {
-  const { userId, userName, teamId, teamName } = useUser();
+  const { userId, userName, teamId, teamName, isHydrating, isMasterOrAbove } = useUser();
   const router = useRouter();
   const [weekStatuses, setWeekStatuses] = useState<WeekStatus[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [majors, setMajors] = useState<string[]>([]);
+  const [teamStatus, setTeamStatus] = useState<TeamMemberStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalData, setModalData] = useState<{ year: number; weekNum: number; data: Record<number, CateData> } | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
 
   const now = new Date();
   const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
   const currentWeek = getWeekNumber(now);
-  const today = now.getDate();
 
   useEffect(() => {
+    if (isHydrating) return; // 세션 복원 전에는 판단하지 않는다
     if (!userId || !teamId) { router.push('/'); return; }
     fetchAll();
-  }, [userId, teamId]);
+  }, [userId, teamId, isHydrating]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setModalData(null); };
@@ -52,6 +55,13 @@ export default function DashboardPage() {
 
       const cd = await catRes.json(); setCategories(Array.isArray(cd) ? cd : []);
       const md = await majRes.json(); setMajors(Array.isArray(md) ? md.map((m: any) => m.name) : []);
+
+      // 관리자는 이번주 팀원 작성현황도 함께
+      if (isMasterOrAbove) {
+        const tsRes = await fetch(`/api/users?teamId=${teamId}&withStatus=true&year=${currentYear}&weekNum=${currentWeek}`);
+        const ts = await tsRes.json();
+        setTeamStatus(Array.isArray(ts) ? ts : []);
+      }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -73,49 +83,23 @@ export default function DashboardPage() {
     finally { setModalLoading(false); }
   };
 
-  const renderCalendar = (year: number, month: number) => {
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const weeks: (number | null)[][] = [];
-    let week: (number | null)[] = Array(firstDay).fill(null);
-    for (let d = 1; d <= daysInMonth; d++) { week.push(d); if (week.length === 7) { weeks.push(week); week = []; } }
-    if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week); }
-
-    const isCurrentWeekDay = (day: number | null) => { if (!day) return false; const d = new Date(year, month, day); return getWeekNumber(d) === currentWeek && d.getFullYear() === currentYear; };
-    const isToday = (day: number | null) => day !== null && year === now.getFullYear() && month === now.getMonth() && day === today;
-
-    return (
-      <div style={{ flex: 1, minWidth: '280px' }}>
-        <div style={{ textAlign: 'center', fontWeight: 700, marginBottom: '0.5rem', fontSize: '1.05rem' }}>{year}년 {month + 1}월</div>
-        <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-          <thead><tr>{['일','월','화','수','목','금','토'].map(d => <th key={d} style={{ padding: '0.4rem', textAlign: 'center', color: d === '일' ? '#ef4444' : d === '토' ? '#3b82f6' : 'var(--foreground)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>{d}</th>)}</tr></thead>
-          <tbody>{weeks.map((w, wi) => (<tr key={wi}>{w.map((day, di) => (<td key={di} style={{ padding: '0.4rem', textAlign: 'center', background: isCurrentWeekDay(day) ? 'var(--primary-alpha-focus)' : 'transparent', fontWeight: isToday(day) ? 800 : 400, color: isToday(day) ? 'var(--primary)' : di === 0 ? '#ef4444' : di === 6 ? '#3b82f6' : 'var(--foreground)' }}>{day || ''}</td>))}</tr>))}</tbody>
-        </table>
-      </div>
-    );
-  };
-
   const formatDT = (s: string | null) => { if (!s) return '-'; const d = new Date(s); return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
 
   if (!userId) return null;
   if (loading) return <div className="glass-panel" style={{ padding: '3rem', maxWidth: '900px', margin: '2rem auto', textAlign: 'center' }}>로딩중...</div>;
 
-  const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
-  const nextMonthYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+  const doneCount = teamStatus.filter(m => m.hasReport).length;
 
   return (
-    <div style={{ maxWidth: '900px', margin: '2rem auto', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+    <div className="dashboard-layout" style={{ maxWidth: isMasterOrAbove ? '1240px' : '900px', margin: '2rem auto', display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
         <h2 style={{ marginBottom: '0.3rem' }}>{userName}님, 안녕하세요</h2>
         <p style={{ color: 'var(--text-muted)', margin: 0 }}>{teamName} | {currentYear}년 {currentWeek}주차</p>
       </div>
 
       <div className="glass-panel" style={{ padding: '2rem' }}>
-        <div className="dashboard-calendar-wrap" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-          {renderCalendar(currentYear, currentMonth)}
-          {renderCalendar(nextMonthYear, nextMonth)}
-        </div>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '0.8rem', marginBottom: 0 }}>* 음영 = 이번주</p>
+        <WeekCalendar />
       </div>
 
       <div className="glass-panel" style={{ padding: '2rem' }}>
@@ -153,6 +137,39 @@ export default function DashboardPage() {
           );
         })}
       </div>
+      </div>
+
+      {/* 관리자: 팀원 이번주 작성현황 (우측) */}
+      {isMasterOrAbove && (
+        <aside className="dashboard-team-status glass-panel" style={{ width: '300px', flexShrink: 0, padding: '1.5rem', position: 'sticky', top: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+            <h3 style={{ fontSize: '1.05rem', margin: 0 }}>팀원 작성현황</h3>
+            <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 700 }}>{doneCount}/{teamStatus.length}</span>
+          </div>
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.8rem' }}>{teamName} · {currentWeek}주차</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {teamStatus.map(m => (
+              <div key={m.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '0.45rem 0.6rem', borderRadius: '6px',
+                background: m.hasReport ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)'
+              }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', minWidth: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+                  {m.isPrimary === false && <span style={{ fontSize: '0.58rem', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0 0.2rem', flexShrink: 0 }}>겸직</span>}
+                </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap', color: m.hasReport ? '#16a34a' : '#dc2626' }}>
+                  {m.hasReport ? '완료' : '미작성'}
+                  {m.hasReport && m.lastUpdated && (
+                    <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.3rem', fontSize: '0.7rem' }}>{formatDT(m.lastUpdated)}</span>
+                  )}
+                </span>
+              </div>
+            ))}
+            {teamStatus.length === 0 && <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>팀원이 없습니다.</p>}
+          </div>
+        </aside>
+      )}
 
       {/* 모달 */}
       {(modalData || modalLoading) && (

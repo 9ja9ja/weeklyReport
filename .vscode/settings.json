@@ -1,4 +1,5 @@
 {
     "claudeCode.allowDangerouslySkipPermissions": true,
-    "claudeCode.initialPermissionMode": "bypassPermissions"
+    "claudeCode.initialPermissionMode": "plan",
+    "chatgpt.openOnStartup": true
 }

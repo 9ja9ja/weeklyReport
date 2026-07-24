@@ -1,37 +1,50 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireTeamMaster } from '@/lib/auth';
+import { requireTeamMaster, requirePartMaster } from '@/lib/auth';
 
+/** GET /api/categories?teamId=1 또는 ?partId=3 */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const teamId = parseInt(searchParams.get('teamId') || '0');
+    const partId = parseInt(searchParams.get('partId') || '0');
     const includeInactive = searchParams.get('includeInactive') === 'true';
-    if (!teamId) return NextResponse.json({ error: 'teamId required' }, { status: 400 });
+    if (!teamId && !partId) return NextResponse.json({ error: 'teamId 또는 partId required' }, { status: 400 });
 
-    const where: any = { teamId };
+    const where: { teamId?: number; partId?: number; isActive?: boolean } = {};
+    if (partId) where.partId = partId;
+    else where.teamId = teamId;
     if (!includeInactive) where.isActive = true;
 
     const categories = await prisma.category.findMany({
       where,
-      orderBy: [{ major: 'asc' }, { orderIdx: 'asc' }]
+      orderBy: [{ part: { orderIdx: 'asc' } }, { major: 'asc' }, { orderIdx: 'asc' }],
+      include: { part: { select: { id: true, name: true, orderIdx: true } } }
     });
     return NextResponse.json(categories);
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const { major, middle, teamId, requestUserId } = await request.json();
-    if (!major || !middle || !teamId) return NextResponse.json({ error: '입력값을 확인해주세요.' }, { status: 400 });
-    if (!await requireTeamMaster(requestUserId, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
-    const last = await prisma.category.findFirst({ where: { major, teamId }, orderBy: { orderIdx: 'desc' } });
-    const cat = await prisma.category.create({ data: { major, middle: middle.trim(), teamId, orderIdx: (last?.orderIdx ?? -1) + 1 } });
+    const { major, middle, partId, requestUserId } = await request.json();
+    if (!major || !middle || !partId) return NextResponse.json({ error: '입력값을 확인해주세요.' }, { status: 400 });
+
+    const part = await prisma.part.findUnique({ where: { id: partId }, select: { teamId: true } });
+    if (!part) return NextResponse.json({ error: '파트를 찾을 수 없습니다.' }, { status: 404 });
+    if (!await requireTeamMaster(requestUserId, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+
+    const last = await prisma.category.findFirst({ where: { major, partId }, orderBy: { orderIdx: 'desc' } });
+    const cat = await prisma.category.create({
+      data: { major, middle: middle.trim(), partId, teamId: part.teamId, orderIdx: (last?.orderIdx ?? -1) + 1 }
+    });
     return NextResponse.json(cat);
-  } catch (error: any) {
-    if (error.code === 'P2002') return NextResponse.json({ error: '이미 존재하는 중분류입니다.' }, { status: 400 });
+  } catch (error) {
+    if ((error as { code?: string }).code === 'P2002') {
+      return NextResponse.json({ error: '이미 존재하는 중분류입니다.' }, { status: 400 });
+    }
     return NextResponse.json({ error: '생성 실패' }, { status: 500 });
   }
 }
@@ -46,36 +59,20 @@ export async function DELETE(request: Request) {
     if (!cat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     if (!await requireTeamMaster(requestUserId, cat.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
-    // 최근 4주간 사용 이력 확인
-    const now = new Date();
-    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    const currentWeek = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-    const currentYear = d.getUTCFullYear();
-
-    const weeks: { year: number; weekNum: number }[] = [];
-    let y = currentYear, w = currentWeek;
-    for (let i = 0; i < 4; i++) { weeks.push({ year: y, weekNum: w }); w--; if (w < 1) { w = 52; y--; } }
-
-    const usageCount = await prisma.reportItem.count({
-      where: {
-        categoryId: id,
-        report: { OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) }
-      }
-    });
+    // 보고 이력이 한 건이라도 있으면 지우지 않는다 (영구 보관 정책)
+    const usageCount = await prisma.reportItem.count({ where: { categoryId: id } });
 
     if (usageCount > 0) {
       // 사용 이력 있음 → soft delete (사용안함 처리)
       await prisma.category.update({ where: { id }, data: { isActive: false } });
-      return NextResponse.json({ success: true, softDeleted: true, message: `최근 4주간 ${usageCount}건의 사용 이력이 있어 '사용안함' 처리되었습니다.` });
+      return NextResponse.json({ success: true, softDeleted: true, message: `${usageCount}건의 작성 이력이 있어 '사용안함' 처리되었습니다.` });
     } else {
       // 사용 이력 없음 → hard delete
       await prisma.category.delete({ where: { id } });
       return NextResponse.json({ success: true, softDeleted: false });
     }
-  } catch (error: any) {
-    if (error.code === 'P2003') return NextResponse.json({ error: '이 중분류를 참조하는 데이터가 있어 삭제할 수 없습니다.' }, { status: 400 });
+  } catch (error) {
+    if ((error as { code?: string }).code === 'P2003') return NextResponse.json({ error: '이 중분류를 참조하는 데이터가 있어 삭제할 수 없습니다.' }, { status: 400 });
     return NextResponse.json({ error: '삭제 실패' }, { status: 500 });
   }
 }
@@ -96,11 +93,15 @@ export async function PATCH(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { categoryIds, teamId, requestUserId } = await request.json();
+    const { categoryIds, partId, teamId, requestUserId } = await request.json();
     if (!Array.isArray(categoryIds)) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
-    if (teamId && requestUserId && !await requireTeamMaster(requestUserId, teamId)) {
-      return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
-    }
+
+    const allowed = partId
+      ? await requirePartMaster(requestUserId, partId)
+      : teamId && requestUserId
+        ? await requireTeamMaster(requestUserId, teamId)
+        : true;
+    if (!allowed) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
     await prisma.$transaction(categoryIds.map((id: number, idx: number) => prisma.category.update({ where: { id }, data: { orderIdx: idx } })));
     return NextResponse.json({ success: true });
   } catch (error) {

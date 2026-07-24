@@ -13,9 +13,9 @@
       "Bash(powershell -Command \"Get-NetFirewallRule -DisplayName ''*3000*'' 2>$null; netsh advfirewall firewall show rule name=''Node 3000'' 2>&1\")",
       "Bash(netsh advfirewall:*)",
       "Bash(npm install:*)",
-      "Read(//c/AI IDE/Antigravity/$APPDATA/Claude/**)",
-      "Read(//c/AI IDE/Antigravity/$HOME/AppData/Roaming/Claude/**)",
-      "Read(//c/Users/9ja9j/**)",
+      "Read(/AI IDE/Antigravity/$APPDATA/Claude/**)",
+      "Read(/AI IDE/Antigravity/$HOME/AppData/Roaming/Claude/**)",
+      "Read(/Users/9ja9j/**)",
       "mcp__gdrive__search"
     ],
     "additionalDirectories": [

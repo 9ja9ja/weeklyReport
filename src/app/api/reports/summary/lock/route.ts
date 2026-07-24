@@ -7,6 +7,39 @@ export async function GET(request: Request) {
   const year = parseInt(searchParams.get('year') || '0');
   const weekNum = parseInt(searchParams.get('weekNum') || '0');
   const teamId = parseInt(searchParams.get('teamId') || '0');
+  const all = searchParams.get('all') === 'true';
+
+  // 전체 팀 잠금 현황판
+  if (all) {
+    try {
+      const [teams, locks] = await Promise.all([
+        prisma.team.findMany({ orderBy: { orderIdx: 'asc' }, select: { id: true, name: true, division: true } }),
+        prisma.summaryLock.findMany({ where: { year, weekNum } })
+      ]);
+      const lockMap = new Map(locks.map(l => [l.teamId, l]));
+      const lockedByIds = locks.map(l => l.lockedBy).filter((v): v is number => v != null);
+      const users = lockedByIds.length > 0
+        ? await prisma.user.findMany({ where: { id: { in: lockedByIds } }, select: { id: true, name: true } })
+        : [];
+      const userMap = new Map(users.map(u => [u.id, u.name]));
+
+      return NextResponse.json(
+        teams.map(t => {
+          const l = lockMap.get(t.id);
+          return {
+            teamId: t.id,
+            teamName: t.name,
+            division: t.division,
+            isLocked: l?.isLocked ?? false,
+            lockedAt: l?.lockedAt ?? null,
+            lockedByName: l?.lockedBy != null ? userMap.get(l.lockedBy) ?? null : null
+          };
+        })
+      );
+    } catch {
+      return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    }
+  }
 
   if (!teamId) return NextResponse.json({ isLocked: false });
 

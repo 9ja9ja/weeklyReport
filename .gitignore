@@ -49,3 +49,7 @@ scripts/migration-*.js
 
 .vercel
 .env*.local
+
+# 운영 DB 백업 (유저 비밀번호 해시 포함 — 절대 커밋 금지)
+backup/
+.playwright-mcp/

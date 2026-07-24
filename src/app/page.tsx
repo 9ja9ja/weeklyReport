@@ -2,25 +2,43 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@/lib/UserContext';
+import { useUser, type LoginUser } from '@/lib/UserContext';
+import Link from 'next/link';
 import { getWeekNumber, getWeekRange, formatDateShort } from '@/lib/weekUtils';
-import changelog from '@/data/changelog';
+import WeekCalendar from '@/components/WeekCalendar';
+
+interface TeamUser {
+  id: number;
+  name: string;
+  role: string;
+  teamId: number;
+  position?: string;
+  isPrimary?: boolean;
+  hasReport?: boolean;
+  prevHasReport?: boolean;
+  lastUpdated?: string | null;
+}
 
 interface TeamWithUsers {
   id: number;
   name: string;
-  users: { id: number; name: string; role: string; teamId: number; hasReport?: boolean; lastUpdated?: string | null; }[];
+  division?: string;
+  prevWeekNum?: number;
+  users: TeamUser[];
 }
 
 export default function Home() {
   const [teams, setTeams] = useState<TeamWithUsers[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const { setUser } = useUser();
+  const { setUserFromLogin } = useUser();
 
   const now = new Date();
   const year = now.getFullYear();
   const weekNum = getWeekNumber(now);
+
+  const [search, setSearch] = useState('');
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
 
   // 로그인 모달
   const [loginTarget, setLoginTarget] = useState<{ id: number; name: string; role: string; teamId: number; teamName: string } | null>(null);
@@ -28,8 +46,8 @@ export default function Home() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // 비밀번호 변경 모달
-  const [changePwUser, setChangePwUser] = useState<{ id: number; name: string; teamId: number; teamName: string; role: string } | null>(null);
+  // 비밀번호 변경 모달 — 로그인 응답의 user 객체를 그대로 보관해 변경 후 세션에 사용
+  const [changePwUser, setChangePwUser] = useState<LoginUser | null>(null);
   const [newPw, setNewPw] = useState('');
   const [newPwConfirm, setNewPwConfirm] = useState('');
   const [changePwError, setChangePwError] = useState('');
@@ -42,12 +60,15 @@ export default function Home() {
       // 단일 API 호출로 모든 팀 + 유저 + 작성현황 조회
       const res = await fetch(`/api/teams?withUsers=true&year=${year}&weekNum=${weekNum}`);
       const data = await res.json();
-      setTeams(Array.isArray(data) ? data : []);
+      const list: TeamWithUsers[] = Array.isArray(data) ? data : [];
+      setTeams(list);
+      // 첫 진입 시 인원이 가장 많은 팀을 기본으로 펼쳐둔다
+      setSelectedTeamId(prev => prev ?? (list.length ? [...list].sort((a, b) => b.users.length - a.users.length)[0].id : null));
     } catch { setTeams([]); }
     finally { setLoading(false); }
   };
 
-  const handleClickUser = (user: any, teamName: string) => {
+  const handleClickUser = (user: TeamUser, teamName: string) => {
     setLoginTarget({ id: user.id, name: user.name, role: user.role, teamId: user.teamId, teamName });
     setLoginPw('');
     setLoginError('');
@@ -66,15 +87,15 @@ export default function Home() {
       if (!res.ok) { setLoginError(data.error || '로그인 실패'); return; }
 
       if (data.mustChangePw) {
-        setChangePwUser({ id: loginTarget.id, name: loginTarget.name, teamId: loginTarget.teamId, teamName: loginTarget.teamName, role: loginTarget.role });
+        setChangePwUser(data.user as LoginUser);
         setLoginTarget(null);
         setNewPw(''); setNewPwConfirm(''); setChangePwError('');
         return;
       }
 
-      setUser(data.user.id, data.user.name, data.user.teamId, data.user.teamName, data.user.role);
+      setUserFromLogin(data.user as LoginUser);
       setLoginTarget(null);
-      router.push('/dashboard');
+      router.push(data.user.role === 'executive' ? '/overview' : '/dashboard');
     } catch { setLoginError('서버 오류'); }
     finally { setLoginLoading(false); }
   };
@@ -89,9 +110,9 @@ export default function Home() {
         body: JSON.stringify({ userId: changePwUser.id, currentPassword: '0000', newPassword: newPw })
       });
       if (!res.ok) { const d = await res.json(); setChangePwError(d.error); return; }
-      setUser(changePwUser.id, changePwUser.name, changePwUser.teamId, changePwUser.teamName, changePwUser.role);
+      setUserFromLogin(changePwUser);
       setChangePwUser(null);
-      router.push('/dashboard');
+      router.push(changePwUser.role === 'executive' ? '/overview' : '/dashboard');
     } catch { setChangePwError('서버 오류'); }
   };
 
@@ -108,78 +129,177 @@ export default function Home() {
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1rem' }}>
-      <div className="glass-panel" style={{ padding: '2.5rem', textAlign: 'center', marginBottom: '2rem' }}>
+    <div style={{ maxWidth: '1320px', margin: '2rem auto', padding: '0 1rem' }}>
+      <div className="glass-panel" style={{ padding: '2.5rem', textAlign: 'center', marginBottom: '1.5rem', position: 'relative' }}>
+        <Link href="/changelog" className="btn"
+          style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.78rem', padding: '0.3rem 0.8rem', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+          업데이트 노트
+        </Link>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.3rem' }}>주간보고 시스템</h1>
         <p style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.3rem' }}>{year}년 {weekNum}주차 ({formatDateShort(getWeekRange(year, weekNum).monday)} ~ {formatDateShort(getWeekRange(year, weekNum).friday)})</p>
-        <p style={{ color: 'var(--text-muted)', margin: 0 }}>이름을 클릭하여 로그인해주세요.</p>
+        <p style={{ color: 'var(--text-muted)', margin: '0 0 1.2rem' }}>이름을 클릭하여 로그인해주세요.</p>
+        <div style={{ position: 'relative', maxWidth: '420px', margin: '0 auto' }}>
+          <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '1rem', pointerEvents: 'none' }}>&#128269;</span>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key !== 'Enter') return;
+              const q = search.trim();
+              if (!q) return;
+              const matches = teams.flatMap(t => t.users.filter(u => u.name.includes(q)).map(u => ({ u, tname: t.name })));
+              if (matches.length === 1) handleClickUser(matches[0].u, matches[0].tname);
+            }}
+            placeholder="이름으로 빠르게 찾기 (Enter 로 로그인)"
+            className="input-field"
+            autoFocus
+            style={{ width: '100%', padding: '0.7rem 2.4rem', fontSize: '1rem', textAlign: 'center' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} title="지우기"
+              style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1rem' }}>✕</button>
+          )}
+        </div>
       </div>
 
-      {loading ? <p style={{ textAlign: 'center' }}>로딩중...</p> : (
-        <div className="home-grid">
-          {teams.map(team => (
-            <div key={team.id} className="glass-panel" style={{ padding: '1.5rem 2rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.6rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)' }}>{team.name}</h3>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{team.users.length}명</span>
-              </div>
+      {loading ? <p style={{ textAlign: 'center' }}>로딩중...</p> : (() => {
+        const q = search.trim();
+        // 검색 중이면 매칭된 팀만, 아니면 선택한 팀 하나
+        const shown = q
+          ? teams.map(t => ({ ...t, users: t.users.filter(u => u.name.includes(q)) })).filter(t => t.users.length > 0)
+          : teams.filter(t => t.id === selectedTeamId);
 
-              {/* 헤더 */}
-              <div style={{ display: 'flex', padding: '0.4rem 0.8rem', fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ flex: 1 }}>이름</div>
-                <div style={{ width: '70px', textAlign: 'center' }}>{weekNum}주차</div>
-                <div style={{ width: '110px', textAlign: 'center' }}>최종작성</div>
-              </div>
+        return (
+          <div className="home-3col" style={{ display: 'grid', gridTemplateColumns: '340px 240px minmax(0, 1fr)', gap: '1.2rem', alignItems: 'start' }}>
+            {/* 1열 — 달력 (위아래) */}
+            <div className="glass-panel home-side" style={{ padding: '1.3rem 1.4rem', position: 'sticky', top: '1rem' }}>
+              <WeekCalendar vertical />
+            </div>
 
-              {/* 유저 목록 */}
-              {team.users.map(user => (
-                <div
-                  key={user.id}
-                  onClick={() => handleClickUser(user, team.name)}
-                  className="user-row"
-                  style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                >
-                  <div style={{ flex: 1, fontWeight: 600, display: 'flex', alignItems: 'center' }}>
-                    {user.name}{roleLabel(user.role)}
-                  </div>
-                  <div style={{ width: '70px', textAlign: 'center' }}>
-                    {user.hasReport
-                      ? <span style={{ color: '#22c55e', fontWeight: 700, fontSize: '0.85rem' }}>완료</span>
-                      : <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.85rem' }}>미작성</span>}
-                  </div>
-                  <div style={{ width: '110px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    {formatDateTime(user.lastUpdated ?? null)}
-                  </div>
+            {/* 2열 — 팀 목록 (위아래) */}
+            <div className="glass-panel home-side" style={{ padding: '1.1rem 1rem', position: 'sticky', top: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', padding: '0 0.4rem 0.6rem', borderBottom: '2px solid var(--border)', marginBottom: '0.5rem' }}>
+                <h3 style={{ margin: 0, fontSize: '0.95rem' }}>팀 목록</h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{teams.length}개</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {teams.map((t, ti) => {
+                  const on = !q && t.id === selectedTeamId;
+                  const hit = q ? t.users.filter(u => u.name.includes(q)).length : 0;
+                  const done = t.users.filter(u => u.hasReport).length;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => { setSearch(''); setSelectedTeamId(t.id); }}
+                      title={`${t.name} 명단 보기`}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', textAlign: 'left',
+                        border: 'none',
+                        borderLeft: `3px solid ${on ? 'var(--primary)' : 'transparent'}`,
+                        borderBottom: ti < teams.length - 1 ? '1px solid var(--border)' : 'none',
+                        background: on ? 'var(--primary-alpha-subtle)' : 'transparent',
+                        color: on ? 'var(--primary)' : 'var(--foreground)',
+                        padding: '0.55rem 0.6rem', width: '100%',
+                        fontSize: '0.88rem', fontWeight: on ? 700 : 500,
+                        opacity: q && hit === 0 ? 0.4 : 1
+                      }}
+                    >
+                      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                        {t.division && t.division !== t.name && (
+                          <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>{t.division}</span>
+                        )}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                      </span>
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 700, borderRadius: '999px', padding: '0.05rem 0.4rem', flexShrink: 0,
+                        background: on ? 'var(--primary)' : 'var(--surface-dim)',
+                        color: on ? 'white' : 'var(--text-muted)'
+                      }}>
+                        {q ? `${hit}` : t.division === '임원' ? `${t.users.length}` : `${done}/${t.users.length}`}
+                      </span>
+                    </button>
+                  );
+                })}
+                {teams.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>등록된 팀이 없습니다.</p>}
+              </div>
+            </div>
+
+            {/* 3열 — 팀원 명단 (쭉 펼침) */}
+            <div className="home-list" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', minWidth: 0 }}>
+              {q && shown.length === 0 && (
+                <div className="glass-panel" style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  &apos;{q}&apos; 검색 결과가 없습니다.
                 </div>
-              ))}
-              {team.users.length === 0 && (
-                <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem', fontSize: '0.9rem' }}>팀원이 없습니다.</p>
               )}
-            </div>
-          ))}
-          {teams.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>등록된 팀이 없습니다.</p>}
-        </div>
-      )}
+              {shown.map(team => {
+                const isExec = team.division === '임원'; // 임원은 작성 안 함 → 로그인만
+                return (
+                  <div key={team.id} className="glass-panel" style={{ padding: '1.4rem 1.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.6rem', flexWrap: 'wrap' }}>
+                      {team.division && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--surface-dim)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.1rem 0.4rem' }}>
+                          {team.division}
+                        </span>
+                      )}
+                      <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)' }}>{team.name}</h3>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{team.users.length}명</span>
+                      {!isExec && (
+                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)' }}>
+                          {team.users.filter(u => u.hasReport).length}/{team.users.length} 작성
+                        </span>
+                      )}
+                    </div>
 
-      {/* 업데이트 노트 */}
-      {changelog.length > 0 && (
-        <div style={{ marginTop: '2rem', padding: '1.5rem 2rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface-dim)' }}>
-          <h4 style={{ margin: '0 0 1rem', fontSize: '0.95rem', color: 'var(--text-muted)' }}>업데이트 노트</h4>
-          {changelog.slice(0, 5).map((entry, i) => (
-            <div key={i} style={{ marginBottom: '0.8rem', paddingBottom: '0.8rem', borderBottom: i < Math.min(changelog.length, 5) - 1 ? '1px dashed var(--border)' : 'none' }}>
-              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '0.3rem' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>{entry.date}</span>
-                <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{entry.title}</span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
-                {entry.items.map((item, j) => (
-                  <li key={j} style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: '1.6' }}>{item}</li>
-                ))}
-              </ul>
+                    {/* 헤더 — 임원은 작성 현황 컬럼 없이 이름만 */}
+                    <div style={{ display: 'flex', padding: '0.4rem 0.8rem', fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ flex: 1 }}>이름</div>
+                      {!isExec && <>
+                        <div style={{ width: '80px', textAlign: 'center', opacity: 0.75 }}>{team.prevWeekNum ?? weekNum - 1}주차</div>
+                        <div style={{ width: '80px', textAlign: 'center' }}>{weekNum}주차</div>
+                        <div style={{ width: '120px', textAlign: 'center' }}>최종작성</div>
+                      </>}
+                    </div>
+                    {team.users.map(user => (
+                      <div
+                        key={user.id}
+                        onClick={() => handleClickUser(user, team.name)}
+                        className="user-row"
+                        style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0, fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</span>
+                          {user.isPrimary === false && (
+                            <span title="겸직" style={{ background: 'var(--surface-dim)', color: 'var(--text-muted)', border: '1px solid var(--border)', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.4rem', fontWeight: 600, flexShrink: 0 }}>겸직</span>
+                          )}
+                          {roleLabel(user.role)}
+                        </div>
+                        {!isExec && <>
+                          <div style={{ width: '80px', textAlign: 'center', flexShrink: 0 }}>
+                            {user.prevHasReport
+                              ? <span style={{ color: '#22c55e', fontWeight: 600, fontSize: '0.8rem', opacity: 0.65 }}>완료</span>
+                              : <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.8rem' }}>미작성</span>}
+                          </div>
+                          <div style={{ width: '80px', textAlign: 'center', flexShrink: 0 }}>
+                            {user.hasReport
+                              ? <span style={{ color: '#22c55e', fontWeight: 700, fontSize: '0.82rem' }}>완료</span>
+                              : <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.82rem' }}>미작성</span>}
+                          </div>
+                          <div style={{ width: '120px', textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                            {formatDateTime(user.lastUpdated ?? null)}
+                          </div>
+                        </>}
+                      </div>
+                    ))}
+                    {team.users.length === 0 && (
+                      <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem', fontSize: '0.9rem' }}>팀원이 없습니다.</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* 로그인 모달 */}
       {loginTarget && (

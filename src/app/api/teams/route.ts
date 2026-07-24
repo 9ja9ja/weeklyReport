@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireSuperAdmin } from '@/lib/auth';
+import { getPrevWeek } from '@/lib/weekUtils';
 
 export async function GET(request: Request) {
   try {
@@ -10,15 +11,23 @@ export async function GET(request: Request) {
     const weekNum = parseInt(searchParams.get('weekNum') || '0');
 
     if (withUsers && year && weekNum) {
-      // 모든 팀 + 유저 + 작성현황을 한 번에 반환
+      const prev = getPrevWeek(year, weekNum);
+      // 모든 팀 + 소속(겸직 포함) + 금주/전주 작성현황을 한 번에 반환
       const teams = await prisma.team.findMany({
-        orderBy: { id: 'asc' },
+        orderBy: { orderIdx: 'asc' },
         include: {
-          users: {
-            orderBy: { name: 'asc' },
-            select: {
-              id: true, name: true, role: true, teamId: true,
-              reports: { where: { year, weekNum }, select: { id: true, updatedAt: true } }
+          userTeams: {
+            orderBy: [{ isPrimary: 'desc' }, { user: { name: 'asc' } }],
+            include: {
+              user: {
+                select: {
+                  id: true, name: true, role: true, teamId: true, position: true,
+                  reports: {
+                    where: { OR: [{ year, weekNum }, { year: prev.year, weekNum: prev.weekNum }] },
+                    select: { year: true, weekNum: true, updatedAt: true }
+                  }
+                }
+              }
             }
           }
         }
@@ -27,20 +36,41 @@ export async function GET(request: Request) {
       const result = teams.map(team => ({
         id: team.id,
         name: team.name,
-        users: team.users.map((u: any) => ({
-          id: u.id, name: u.name, role: u.role, teamId: u.teamId,
-          hasReport: u.reports.length > 0,
-          lastUpdated: u.reports[0]?.updatedAt || null
-        }))
+        division: team.division,
+        prevWeekNum: prev.weekNum,
+        users: team.userTeams.map(ut => {
+          const cur = ut.user.reports.find(r => r.year === year && r.weekNum === weekNum);
+          const pre = ut.user.reports.find(r => r.year === prev.year && r.weekNum === prev.weekNum);
+          return {
+            id: ut.user.id,
+            name: ut.user.name,
+            role: ut.user.role,
+            teamId: ut.user.teamId,
+            position: ut.user.position,
+            isPrimary: ut.isPrimary,
+            hasReport: !!cur,
+            prevHasReport: !!pre,
+            lastUpdated: cur?.updatedAt || null
+          };
+        })
       }));
       return NextResponse.json(result);
     }
 
     const teams = await prisma.team.findMany({
-      orderBy: { id: 'asc' },
-      include: { _count: { select: { users: true } } }
+      orderBy: { orderIdx: 'asc' },
+      include: { _count: { select: { userTeams: true, parts: true } } }
     });
-    return NextResponse.json(teams);
+    return NextResponse.json(
+      teams.map(t => ({
+        id: t.id,
+        name: t.name,
+        division: t.division,
+        orderIdx: t.orderIdx,
+        createdAt: t.createdAt,
+        _count: { users: t._count.userTeams, parts: t._count.parts }
+      }))
+    );
   } catch (error) {
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
@@ -48,13 +78,17 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { name, requestUserId } = await request.json();
+    const { name, division, requestUserId } = await request.json();
     if (!name?.trim()) return NextResponse.json({ error: '팀 이름을 입력해주세요.' }, { status: 400 });
     if (!await requireSuperAdmin(requestUserId)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
-    const team = await prisma.team.create({ data: { name: name.trim() } });
+
+    const last = await prisma.team.findFirst({ orderBy: { orderIdx: 'desc' } });
+    const team = await prisma.team.create({
+      data: { name: name.trim(), division: (division || '').trim(), orderIdx: (last?.orderIdx ?? -1) + 1 }
+    });
     return NextResponse.json(team);
-  } catch (error: any) {
-    if (error.code === 'P2002') return NextResponse.json({ error: '이미 존재하는 팀 이름입니다.' }, { status: 400 });
+  } catch (error) {
+    if ((error as { code?: string }).code === 'P2002') return NextResponse.json({ error: '이미 존재하는 팀 이름입니다.' }, { status: 400 });
     return NextResponse.json({ error: '생성 실패' }, { status: 500 });
   }
 }
@@ -74,12 +108,18 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { id, newName, requestUserId } = await request.json();
+    const { id, newName, division, requestUserId } = await request.json();
     if (!await requireSuperAdmin(requestUserId)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
-    await prisma.team.update({ where: { id }, data: { name: newName.trim() } });
+
+    const data: { name?: string; division?: string } = {};
+    if (newName?.trim()) data.name = newName.trim();
+    if (typeof division === 'string') data.division = division.trim();
+    if (Object.keys(data).length === 0) return NextResponse.json({ error: '변경할 내용이 없습니다.' }, { status: 400 });
+
+    await prisma.team.update({ where: { id }, data });
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    if (error.code === 'P2002') return NextResponse.json({ error: '이미 존재하는 팀 이름입니다.' }, { status: 400 });
+  } catch (error) {
+    if ((error as { code?: string }).code === 'P2002') return NextResponse.json({ error: '이미 존재하는 팀 이름입니다.' }, { status: 400 });
     return NextResponse.json({ error: '수정 실패' }, { status: 500 });
   }
 }

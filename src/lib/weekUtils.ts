@@ -16,6 +16,13 @@ export function getWeekRange(year: number, weekNum: number): { monday: Date; fri
   return { monday, friday };
 }
 
+/** 직전 주차 — 1주차면 전년도 마지막 주(52/53)로 넘어간다 */
+export function getPrevWeek(year: number, weekNum: number): { year: number; weekNum: number } {
+  if (weekNum > 1) return { year, weekNum: weekNum - 1 };
+  // 전년 12/28 은 항상 그 해 마지막 ISO 주에 속한다
+  return { year: year - 1, weekNum: getWeekNumber(new Date(year - 1, 11, 28)) };
+}
+
 export function formatDateShort(d: Date): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }

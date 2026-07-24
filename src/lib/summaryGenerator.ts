@@ -12,10 +12,13 @@ export async function regenerateSummary(year: number, weekNum: number, teamId: n
   });
   if (lock?.isLocked) return;
 
-  // 해당 팀 유저들의 리포트 조회
+  // 겸직 지원: 작성자 소속이 아니라 "항목이 속한 팀" 기준으로 취합한다.
   const reports = await prisma.report.findMany({
-    where: { year, weekNum, user: { teamId } },
-    include: { user: true, items: true }
+    where: { year, weekNum, items: { some: { category: { teamId } } } },
+    include: {
+      user: true,
+      items: { where: { category: { teamId } } }
+    }
   });
 
   const map: EditorState = {};

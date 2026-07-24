@@ -1,203 +1,270 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 
-interface TeamInfo { id: number; name: string; _count?: { users: number }; }
-interface UserInfo { id: number; name: string; role: string; teamId: number; }
-interface MajorInfo { id: number; name: string; orderIdx: number; teamId: number; isActive: boolean; }
-interface CategoryInfo { id: number; major: string; middle: string; orderIdx: number; teamId: number; isActive: boolean; }
+interface TeamInfo { id: number; name: string; division?: string; _count?: { users: number; parts?: number }; }
+interface UserInfo { id: number; name: string; role: string; teamId: number; position?: string; isPrimary?: boolean; teamIds?: number[]; }
+interface PartInfo { id: number; name: string; orderIdx: number; teamId: number; isActive: boolean; }
+interface MajorInfo { id: number; name: string; orderIdx: number; teamId: number; partId: number; isActive: boolean; }
+interface CategoryInfo { id: number; major: string; middle: string; orderIdx: number; teamId: number; partId: number; isActive: boolean; }
 
 export default function SettingsPage() {
-  const { userId, teamId: myTeamId, isMasterOrAbove, isSuperAdmin } = useUser();
+  const { userId, teamId: myTeamId, isMasterOrAbove, isSuperAdmin, isHydrating } = useUser();
   const router = useRouter();
 
   // superAdmin은 팀을 선택할 수 있음, teamMaster는 본인팀 고정
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [selectedPartId, setSelectedPartId] = useState<number | null>(null);
   const [teams, setTeams] = useState<TeamInfo[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
+  const [allUsers, setAllUsers] = useState<UserInfo[]>([]);
+  const [parts, setParts] = useState<PartInfo[]>([]);
   const [majors, setMajors] = useState<MajorInfo[]>([]);
   const [categories, setCategories] = useState<CategoryInfo[]>([]);
 
   const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamDivision, setNewTeamDivision] = useState('');
   const [newUserName, setNewUserName] = useState('');
+  const [crossUserId, setCrossUserId] = useState('');
+  const [newPartName, setNewPartName] = useState('');
   const [newMajorName, setNewMajorName] = useState('');
   const [newMiddle, setNewMiddle] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [hasChanges, setHasChanges] = useState(false);
 
   const activeTeamId = isSuperAdmin ? selectedTeamId : myTeamId;
   const activeTeamName = teams.find(t => t.id === activeTeamId)?.name || '';
 
-  useEffect(() => {
-    if (!isMasterOrAbove) { router.push('/'); return; }
-    fetchTeams();
-  }, [isMasterOrAbove]);
+  // 선택된 파트 기준으로 필터링
+  const partMajors = majors.filter(m => m.partId === selectedPartId);
+  const partCategories = categories.filter(c => c.partId === selectedPartId);
+  const selectedPart = parts.find(p => p.id === selectedPartId);
 
-  useEffect(() => {
-    if (activeTeamId) fetchTeamData(activeTeamId);
-  }, [activeTeamId]);
+  const fetchTeamData = useCallback(async (tid: number) => {
+    try {
+      const [uRes, pRes, mRes, cRes] = await Promise.all([
+        fetch(`/api/users?teamId=${tid}`),
+        fetch(`/api/parts?teamId=${tid}&includeInactive=true`),
+        fetch(`/api/majors?teamId=${tid}&includeInactive=true`),
+        fetch(`/api/categories?teamId=${tid}&includeInactive=true`)
+      ]);
+      const uData: UserInfo[] = await uRes.json();
+      const pData: PartInfo[] = await pRes.json();
+      setUsers(Array.isArray(uData) ? uData : []);
+      setParts(Array.isArray(pData) ? pData : []);
+      setMajors(await mRes.json());
+      setCategories(await cRes.json());
 
-  const fetchTeams = async () => {
+      // 선택된 파트가 사라졌으면 첫 활성 파트로
+      setSelectedPartId(prev => {
+        if (prev && pData.some(p => p.id === prev)) return prev;
+        return pData.find(p => p.isActive)?.id ?? pData[0]?.id ?? null;
+      });
+    } catch { }
+  }, []);
+
+  const fetchTeams = useCallback(async () => {
     setLoading(true);
     try {
+      const res = await fetch('/api/teams');
+      const data = await res.json();
+      const t: TeamInfo[] = Array.isArray(data) ? data : [];
+      setTeams(t);
       if (isSuperAdmin) {
-        const res = await fetch('/api/teams');
-        const data = await res.json();
-        const t = Array.isArray(data) ? data : [];
-        setTeams(t);
-        if (!selectedTeamId && t.length > 0) setSelectedTeamId(t[0].id);
+        setSelectedTeamId(prev => prev ?? (t.length > 0 ? t[0].id : null));
+        const allRes = await fetch('/api/users');
+        const all = await allRes.json();
+        setAllUsers(Array.isArray(all) ? all : []);
       } else {
-        setTeams([]);
         setSelectedTeamId(myTeamId);
       }
     } catch { }
     finally { setLoading(false); }
-  };
+  }, [isSuperAdmin, myTeamId]);
 
-  const fetchTeamData = async (tid: number) => {
-    try {
-      const [uRes, mRes, cRes] = await Promise.all([
-        fetch(`/api/users?teamId=${tid}`),
-        fetch(`/api/majors?teamId=${tid}&includeInactive=true`),
-        fetch(`/api/categories?teamId=${tid}&includeInactive=true`)
-      ]);
-      setUsers(await uRes.json());
-      setMajors(await mRes.json());
-      setCategories(await cRes.json());
-      setHasChanges(false);
-    } catch { }
-  };
+  useEffect(() => {
+    if (isHydrating) return; // 세션 복원 전에는 판단하지 않는다
+    if (!isMasterOrAbove) { router.push('/'); return; }
+    fetchTeams();
+  }, [isHydrating, isMasterOrAbove, fetchTeams, router]);
 
-  const markChanged = () => setHasChanges(true);
+  useEffect(() => {
+    if (activeTeamId) fetchTeamData(activeTeamId);
+  }, [activeTeamId, fetchTeamData]);
 
-  const handleSaveAll = () => {
-    alert('모든 변경사항이 실시간으로 저장되었습니다.');
-    setHasChanges(false);
-  };
+  const reload = () => { if (activeTeamId) fetchTeamData(activeTeamId); };
+  const post = (url: string, body: unknown, method = 'POST') =>
+    fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   // ── 팀 관리 ──
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
-    const res = await fetch('/api/teams', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeamName.trim(), requestUserId: userId }) });
-    if (res.ok) { setNewTeamName(''); fetchTeams(); markChanged(); } else { const d = await res.json(); alert(d.error); }
+    const res = await post('/api/teams', { name: newTeamName.trim(), division: newTeamDivision.trim(), requestUserId: userId });
+    if (res.ok) { setNewTeamName(''); setNewTeamDivision(''); fetchTeams(); } else alert((await res.json()).error);
   };
   const deleteTeam = async (id: number, name: string) => {
     if (!confirm(`"${name}" 팀을 삭제하시겠습니까? 모든 데이터가 삭제됩니다.`)) return;
     const res = await fetch(`/api/teams?id=${id}&requestUserId=${userId}`, { method: 'DELETE' });
-    if (res.ok) { fetchTeams(); if (selectedTeamId === id) setSelectedTeamId(null); markChanged(); } else { const d = await res.json(); alert(d.error); }
+    if (res.ok) { if (selectedTeamId === id) setSelectedTeamId(null); fetchTeams(); } else alert((await res.json()).error);
   };
 
-  // ── 유저 관리 ──
+  // ── 팀원 관리 ──
   const addUser = async () => {
     if (!newUserName.trim() || !activeTeamId) return;
-    const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newUserName.trim(), teamId: activeTeamId, requestUserId: userId }) });
-    if (res.ok) { setNewUserName(''); fetchTeamData(activeTeamId); markChanged(); } else { const d = await res.json(); alert(d.error); }
+    const res = await post('/api/users', { name: newUserName.trim(), teamId: activeTeamId, requestUserId: userId });
+    if (res.ok) { setNewUserName(''); reload(); } else alert((await res.json()).error);
+  };
+  const addCrossUser = async () => {
+    if (!crossUserId || !activeTeamId) return;
+    const res = await post('/api/users', { targetUserId: parseInt(crossUserId, 10), teamId: activeTeamId, action: 'add', requestUserId: userId }, 'PUT');
+    if (res.ok) { setCrossUserId(''); reload(); } else alert((await res.json()).error);
+  };
+  const removeCrossUser = async (targetId: number, name: string) => {
+    if (!confirm(`${name}님의 이 팀 겸직을 해제하시겠습니까?`)) return;
+    const res = await post('/api/users', { targetUserId: targetId, teamId: activeTeamId, action: 'remove', requestUserId: userId }, 'PUT');
+    if (res.ok) reload(); else alert((await res.json()).error);
   };
   const changeRole = async (targetId: number, currentRole: string) => {
     const newRole = currentRole === 'teamMaster' ? 'user' : 'teamMaster';
     if (targetId === userId && currentRole !== 'user') { alert('본인의 권한은 해제할 수 없습니다.'); return; }
     if (!confirm(newRole === 'teamMaster' ? '관리자로 지정하시겠습니까?' : '일반 사용자로 변경하시겠습니까?')) return;
-    await fetch('/api/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetUserId: targetId, role: newRole, requestUserId: userId }) });
-    if (activeTeamId) fetchTeamData(activeTeamId);
-    markChanged();
+    await post('/api/users', { targetUserId: targetId, role: newRole, requestUserId: userId }, 'PATCH');
+    reload();
+  };
+  const toggleExecutive = async (targetId: number, currentRole: string) => {
+    const newRole = currentRole === 'executive' ? 'user' : 'executive';
+    if (targetId === userId) { alert('본인의 권한은 변경할 수 없습니다.'); return; }
+    if (!confirm(newRole === 'executive'
+      ? '임원으로 지정하시겠습니까?\n\n임원은 모든 팀의 전체 취합본을 조회만 할 수 있고, 작성·편집은 할 수 없습니다.'
+      : '임원 권한을 해제하시겠습니까?')) return;
+    const res = await post('/api/users', { targetUserId: targetId, role: newRole, requestUserId: userId }, 'PATCH');
+    if (!res.ok) { alert((await res.json()).error); return; }
+    reload();
   };
   const resetPassword = async (targetId: number, name: string) => {
     if (!confirm(`${name}님의 비밀번호를 0000으로 초기화하시겠습니까?`)) return;
-    await fetch('/api/users', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetUserId: targetId, resetPassword: true, requestUserId: userId }) });
+    await post('/api/users', { targetUserId: targetId, resetPassword: true, requestUserId: userId }, 'PATCH');
     alert('초기화 완료');
   };
   const deleteUser = async (targetId: number, name: string) => {
     if (!confirm(`${name}님을 삭제하시겠습니까?`)) return;
     await fetch(`/api/users?id=${targetId}&requestUserId=${userId}`, { method: 'DELETE' });
-    if (activeTeamId) fetchTeamData(activeTeamId);
-    markChanged();
+    reload();
+  };
+
+  // ── 파트 관리 ──
+  const addPart = async () => {
+    if (!newPartName.trim() || !activeTeamId) { alert('이름을 입력해주세요.'); return; }
+    const res = await post('/api/parts', { name: newPartName.trim(), teamId: activeTeamId, requestUserId: userId });
+    if (res.ok) { setNewPartName(''); reload(); } else alert((await res.json()).error);
+  };
+  const togglePartActive = async (id: number, isActive: boolean) => {
+    if (!confirm(isActive ? '파트를 다시 활성화하시겠습니까?' : '파트를 사용안함 처리하시겠습니까?')) return;
+    await post('/api/parts', { id, isActive, requestUserId: userId }, 'PATCH');
+    reload();
+  };
+  const deletePart = async (id: number, name: string) => {
+    if (!confirm(`"${name}" 파트를 삭제하시겠습니까?\n\n하위 대분류가 모두 비활성이어야 삭제할 수 있습니다.`)) return;
+    const res = await fetch(`/api/parts?id=${id}&requestUserId=${userId}`, { method: 'DELETE' });
+    const d = await res.json();
+    if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error);
+  };
+  const movePart = async (idx: number, dir: -1 | 1) => {
+    const active = parts.filter(p => p.isActive);
+    if (idx + dir < 0 || idx + dir >= active.length) return;
+    const nl = [...parts];
+    const a = nl.findIndex(p => p.id === active[idx].id);
+    const b = nl.findIndex(p => p.id === active[idx + dir].id);
+    [nl[a], nl[b]] = [nl[b], nl[a]];
+    setParts(nl);
+    await post('/api/parts', { partIds: nl.map(p => p.id), teamId: activeTeamId, requestUserId: userId }, 'PUT');
   };
 
   // ── 대분류 관리 ──
   const addMajor = async () => {
-    const tid = activeTeamId;
-    if (!newMajorName.trim() || !tid) { alert('이름을 입력해주세요.'); return; }
-    const res = await fetch('/api/majors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newMajorName.trim(), teamId: tid, requestUserId: userId }) });
-    if (res.ok) { setNewMajorName(''); if (activeTeamId) fetchTeamData(activeTeamId); markChanged(); } else { const d = await res.json(); alert(d.error); }
+    if (!newMajorName.trim() || !selectedPartId) { alert('파트를 선택하고 이름을 입력해주세요.'); return; }
+    const res = await post('/api/majors', { name: newMajorName.trim(), partId: selectedPartId, requestUserId: userId });
+    if (res.ok) { setNewMajorName(''); reload(); } else alert((await res.json()).error);
   };
   const deleteMajor = async (id: number, name: string) => {
     if (!confirm(`"${name}" 대분류를 삭제하시겠습니까?\n\n사용 이력이 있으면 '사용안함' 처리됩니다.`)) return;
     const res = await fetch(`/api/majors?id=${id}&requestUserId=${userId}`, { method: 'DELETE' });
     const d = await res.json();
-    if (res.ok) { if (d.message) alert(d.message); if (activeTeamId) fetchTeamData(activeTeamId); markChanged(); }
-    else alert(d.error);
+    if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error);
   };
   const toggleMajorActive = async (id: number, isActive: boolean) => {
     if (!confirm(isActive ? '대분류를 다시 활성화하시겠습니까?' : '대분류를 사용안함 처리하시겠습니까?')) return;
-    await fetch('/api/majors', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, isActive, requestUserId: userId }) });
-    if (activeTeamId) fetchTeamData(activeTeamId);
-    markChanged();
+    await post('/api/majors', { id, isActive, requestUserId: userId }, 'PATCH');
+    reload();
   };
   const moveMajor = async (idx: number, dir: -1 | 1) => {
-    const activeMajors = majors.filter(m => m.isActive);
-    if (idx + dir < 0 || idx + dir >= activeMajors.length) return;
-    const nl = [...majors];
-    const aGlob = nl.findIndex(m => m.id === activeMajors[idx].id);
-    const bGlob = nl.findIndex(m => m.id === activeMajors[idx + dir].id);
-    [nl[aGlob], nl[bGlob]] = [nl[bGlob], nl[aGlob]]; setMajors(nl);
-    await fetch('/api/majors', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ majorIds: nl.map(m => m.id), teamId: activeTeamId, requestUserId: userId }) });
-    markChanged();
+    const active = partMajors.filter(m => m.isActive);
+    if (idx + dir < 0 || idx + dir >= active.length) return;
+    const scoped = [...partMajors];
+    const a = scoped.findIndex(m => m.id === active[idx].id);
+    const b = scoped.findIndex(m => m.id === active[idx + dir].id);
+    [scoped[a], scoped[b]] = [scoped[b], scoped[a]];
+    await post('/api/majors', { majorIds: scoped.map(m => m.id), partId: selectedPartId, requestUserId: userId }, 'PUT');
+    reload();
   };
 
   // ── 중분류 관리 ──
   const addCategory = async (major: string) => {
     const middle = newMiddle[major]?.trim();
-    if (!middle || !activeTeamId) return;
-    const res = await fetch('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ major, middle, teamId: activeTeamId, requestUserId: userId }) });
-    if (res.ok) { setNewMiddle(prev => ({ ...prev, [major]: '' })); fetchTeamData(activeTeamId); markChanged(); } else { const d = await res.json(); alert(d.error || '실패'); }
+    if (!middle || !selectedPartId) return;
+    const res = await post('/api/categories', { major, middle, partId: selectedPartId, requestUserId: userId });
+    if (res.ok) { setNewMiddle(prev => ({ ...prev, [major]: '' })); reload(); } else alert((await res.json()).error || '실패');
   };
   const deleteCategory = async (catId: number, name: string) => {
-    if (!confirm(`"${name}" 중분류를 삭제하시겠습니까?\n\n최근 4주간 사용 이력이 있으면 '사용안함' 처리됩니다.`)) return;
+    if (!confirm(`"${name}" 중분류를 삭제하시겠습니까?\n\n작성 이력이 있으면 '사용안함' 처리됩니다.`)) return;
     const res = await fetch(`/api/categories?id=${catId}&requestUserId=${userId}`, { method: 'DELETE' });
     const d = await res.json();
-    if (res.ok) { if (d.message) alert(d.message); if (activeTeamId) fetchTeamData(activeTeamId); markChanged(); }
-    else alert(d.error || '삭제 실패');
+    if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error || '삭제 실패');
   };
   const toggleCategoryActive = async (catId: number, isActive: boolean) => {
     if (!confirm(isActive ? '중분류를 다시 활성화하시겠습니까?' : '중분류를 사용안함 처리하시겠습니까?')) return;
-    await fetch('/api/categories', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: catId, isActive, requestUserId: userId }) });
-    if (activeTeamId) fetchTeamData(activeTeamId);
-    markChanged();
+    await post('/api/categories', { id: catId, isActive, requestUserId: userId }, 'PATCH');
+    reload();
   };
   const moveCategory = async (major: string, idx: number, dir: -1 | 1) => {
-    const activeCats = categories.filter(c => c.major === major && c.isActive);
-    if (idx + dir < 0 || idx + dir >= activeCats.length) return;
-    const all = [...categories];
-    const a = activeCats[idx]; const b = activeCats[idx + dir];
-    const ai = all.findIndex(c => c.id === a.id); const bi = all.findIndex(c => c.id === b.id);
-    all[ai] = b; all[bi] = a; setCategories(all);
-    fetch('/api/categories', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryIds: all.map(c => c.id), teamId: activeTeamId, requestUserId: userId }) });
-    markChanged();
+    const active = partCategories.filter(c => c.major === major && c.isActive);
+    if (idx + dir < 0 || idx + dir >= active.length) return;
+    const scoped = [...partCategories];
+    const a = scoped.findIndex(c => c.id === active[idx].id);
+    const b = scoped.findIndex(c => c.id === active[idx + dir].id);
+    [scoped[a], scoped[b]] = [scoped[b], scoped[a]];
+    await post('/api/categories', { categoryIds: scoped.map(c => c.id), partId: selectedPartId, requestUserId: userId }, 'PUT');
+    reload();
   };
 
   if (loading) return <div className="glass-panel" style={{ padding: '3rem', margin: '2rem auto', maxWidth: '1000px', textAlign: 'center' }}>로딩중...</div>;
 
+  const sectionSuffix = (extra?: string) => (
+    <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 500 }}>
+      {isSuperAdmin && ` — ${activeTeamName}`}{extra}
+    </span>
+  );
+
+  // 아직 이 팀에 속하지 않은 인원 (겸직 후보)
+  const crossCandidates = allUsers.filter(u => !users.some(m => m.id === u.id));
+
   return (
     <div style={{ maxWidth: '1000px', margin: '2rem auto', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-      {/* 헤더 + 저장 버튼 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ fontSize: '1.5rem', margin: 0 }}>설정</h2>
-        <button onClick={handleSaveAll} className="btn btn-primary" style={{ padding: '0.5rem 2rem', fontSize: '1rem', opacity: hasChanges ? 1 : 0.5 }}>
-          {hasChanges ? '✓ 변경사항 확인' : '변경 없음'}
-        </button>
+        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>모든 변경은 즉시 저장됩니다.</span>
       </div>
 
-      {/* superAdmin: 팀 선택 드롭다운 */}
+      {/* superAdmin: 팀 선택 */}
       {isSuperAdmin && teams.length > 0 && (
-        <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--primary-alpha-subtle)' }}>
+        <div className="glass-panel" style={{ padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>관리 대상 팀:</span>
           <select value={selectedTeamId || ''} onChange={e => setSelectedTeamId(parseInt(e.target.value))}
-            className="input-field" style={{ padding: '0.4rem 0.8rem', fontSize: '0.95rem', fontWeight: 600, minWidth: '150px' }}>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t._count?.users ?? 0}명)</option>)}
+            className="input-field" style={{ padding: '0.4rem 0.8rem', fontSize: '0.95rem', fontWeight: 600, minWidth: '200px' }}>
+            {teams.map(t => <option key={t.id} value={t.id}>{t.division ? `[${t.division}] ` : ''}{t.name} ({t._count?.users ?? 0}명)</option>)}
           </select>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>아래 유저/대분류/중분류 관리는 선택된 팀 기준입니다.</span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>아래 관리 항목은 선택된 팀 기준입니다.</span>
         </div>
       )}
 
@@ -207,13 +274,18 @@ export default function SettingsPage() {
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>팀 관리</h3>
           {teams.map(t => (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.5rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
+              {t.division && (
+                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--surface-dim)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.1rem 0.4rem', flexShrink: 0 }}>{t.division}</span>
+              )}
               <span style={{ flex: 1, fontWeight: 700, color: selectedTeamId === t.id ? 'var(--primary)' : 'var(--foreground)' }}>
-                {t.name} <span style={{ fontWeight: 400, fontSize: '0.85rem', color: 'var(--text-muted)' }}>({t._count?.users ?? 0}명)</span>
+                {t.name}
+                <span style={{ fontWeight: 400, fontSize: '0.85rem', color: 'var(--text-muted)' }}> ({t._count?.users ?? 0}명 · 파트 {t._count?.parts ?? 0})</span>
               </span>
               <button onClick={() => deleteTeam(t.id, t.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }}>✕</button>
             </div>
           ))}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
+            <input type="text" value={newTeamDivision} onChange={e => setNewTeamDivision(e.target.value)} placeholder="구분 (예: Pharos)" className="input-field" style={{ width: '150px', padding: '0.4rem 0.6rem' }} />
             <input type="text" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTeam()} placeholder="새 팀 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
             <button onClick={addTeam} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>팀 추가</button>
           </div>
@@ -224,53 +296,124 @@ export default function SettingsPage() {
       {activeTeamId && (
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
-            팀원 관리 {isSuperAdmin && <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 500 }}>— {activeTeamName}</span>}
+            팀원 관리 {sectionSuffix()}
           </h3>
           {users.map(user => (
             <div key={user.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ flex: 1, fontWeight: 600 }}>
                 {user.name}
+                {user.position && <span style={{ fontWeight: 400, fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>{user.position}</span>}
+                {user.isPrimary === false && <span style={{ background: 'var(--surface-dim)', color: 'var(--text-muted)', border: '1px solid var(--border)', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem', fontWeight: 600 }}>겸직</span>}
                 {user.role === 'superAdmin' && <span style={{ background: '#dc2626', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>최고관리자</span>}
                 {user.role === 'teamMaster' && <span style={{ background: 'var(--primary)', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>관리자</span>}
+                {user.role === 'executive' && <span style={{ background: '#7c3aed', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>임원</span>}
               </span>
-              {user.role !== 'superAdmin' && (
-                <button onClick={() => changeRole(user.id, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)', borderColor: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)' }}
-                  disabled={user.id === userId && user.role === 'teamMaster'}>
-                  {user.role === 'teamMaster' ? '관리자 해제' : '관리자 지정'}
-                </button>
+              {user.isPrimary === false ? (
+                <button onClick={() => removeCrossUser(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#f59e0b', borderColor: '#f59e0b' }}>겸직 해제</button>
+              ) : (
+                <>
+                  {user.role !== 'superAdmin' && user.role !== 'executive' && (
+                    <button onClick={() => changeRole(user.id, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)', borderColor: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)' }}
+                      disabled={user.id === userId && user.role === 'teamMaster'}>
+                      {user.role === 'teamMaster' ? '관리자 해제' : '관리자 지정'}
+                    </button>
+                  )}
+                  {isSuperAdmin && user.role !== 'superAdmin' && user.id !== userId && (
+                    <button onClick={() => toggleExecutive(user.id, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#7c3aed', borderColor: '#7c3aed' }}>
+                      {user.role === 'executive' ? '임원 해제' : '임원 지정'}
+                    </button>
+                  )}
+                  <button onClick={() => resetPassword(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>PW초기화</button>
+                  {user.role !== 'superAdmin' && <button onClick={() => deleteUser(user.id, user.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }} disabled={user.id === userId}>✕</button>}
+                </>
               )}
-              <button onClick={() => resetPassword(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>PW초기화</button>
-              {user.role !== 'superAdmin' && <button onClick={() => deleteUser(user.id, user.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }} disabled={user.id === userId}>✕</button>}
             </div>
           ))}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
             <input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addUser()} placeholder="새 팀원 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
             <button onClick={addUser} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>팀원 추가</button>
           </div>
+          {isSuperAdmin && crossCandidates.length > 0 && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
+              <select value={crossUserId} onChange={e => setCrossUserId(e.target.value)} className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}>
+                <option value="">겸직으로 추가할 다른 팀 인원 선택...</option>
+                {crossCandidates.map(u => (
+                  <option key={u.id} value={u.id}>{u.name} ({teams.find(t => t.id === u.teamId)?.name ?? '-'})</option>
+                ))}
+              </select>
+              <button onClick={addCrossUser} disabled={!crossUserId} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem' }}>겸직 추가</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 파트 관리 */}
+      {activeTeamId && (
+        <div className="glass-panel" style={{ padding: '2rem' }}>
+          <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
+            파트 관리 {sectionSuffix()}
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
+            파트는 대분류 위 단계입니다. 문서의 &quot;분류1&quot; 컬럼에 해당합니다. 파트를 선택하면 아래 대분류·중분류가 해당 파트 기준으로 표시됩니다.
+          </p>
+          {parts.filter(p => p.isActive).map((p, idx) => (
+            <div key={p.id} className="settings-row"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.8rem',
+                borderBottom: '1px solid var(--border)',
+                background: selectedPartId === p.id ? 'var(--surface-dim)' : undefined,
+                borderLeft: selectedPartId === p.id ? '3px solid var(--primary)' : '3px solid transparent'
+              }}>
+              <button onClick={() => setSelectedPartId(p.id)}
+                style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem', color: selectedPartId === p.id ? 'var(--primary)' : 'var(--foreground)', padding: 0 }}>
+                {p.name}
+                <span style={{ fontWeight: 400, fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                  대분류 {majors.filter(m => m.partId === p.id && m.isActive).length} · 중분류 {categories.filter(c => c.partId === p.id && c.isActive).length}
+                </span>
+              </button>
+              <button onClick={() => movePart(idx, -1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
+              <button onClick={() => movePart(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === parts.filter(x => x.isActive).length - 1}>▼</button>
+              <button onClick={() => togglePartActive(p.id, false)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#f59e0b', borderColor: '#f59e0b' }}>사용안함</button>
+              <button onClick={() => deletePart(p.id, p.name)} className="icon-btn del" style={{ fontSize: '0.8rem' }}>✕</button>
+            </div>
+          ))}
+          {parts.filter(p => !p.isActive).length > 0 && (
+            <div style={{ marginTop: '0.8rem', padding: '0.6rem 0.8rem', background: 'var(--surface-dim)', borderRadius: '6px' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>사용안함 처리된 파트</div>
+              {parts.filter(p => !p.isActive).map(p => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', opacity: 0.6 }}>
+                  <span style={{ flex: 1, fontWeight: 500, textDecoration: 'line-through', color: 'var(--text-muted)' }}>{p.name}</span>
+                  <button onClick={() => togglePartActive(p.id, true)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#22c55e', borderColor: '#22c55e' }}>복원</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
+            <input type="text" value={newPartName} onChange={e => setNewPartName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPart()} placeholder="새 파트 이름 (예: 내부, 핀테크)" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
+            <button onClick={addPart} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>파트 추가</button>
+          </div>
         </div>
       )}
 
       {/* 대분류 관리 */}
-      {activeTeamId && (
+      {activeTeamId && selectedPartId && (
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
-            대분류 관리 {isSuperAdmin && <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 500 }}>— {activeTeamName}</span>}
+            대분류 관리 {sectionSuffix(` / 파트: ${selectedPart?.name ?? ''}`)}
           </h3>
-          {/* 활성 대분류 */}
-          {majors.filter(m => m.isActive).map((m, idx) => (
+          {partMajors.filter(m => m.isActive).map((m, idx) => (
             <div key={m.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ flex: 1, fontWeight: 700, color: 'var(--primary)' }}>{m.name}</span>
               <button onClick={() => moveMajor(idx, -1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
-              <button onClick={() => moveMajor(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === majors.filter(x => x.isActive).length - 1}>▼</button>
+              <button onClick={() => moveMajor(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === partMajors.filter(x => x.isActive).length - 1}>▼</button>
               <button onClick={() => toggleMajorActive(m.id, false)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#f59e0b', borderColor: '#f59e0b' }}>사용안함</button>
               <button onClick={() => deleteMajor(m.id, m.name)} className="icon-btn del" style={{ fontSize: '0.8rem' }}>✕</button>
             </div>
           ))}
-          {/* 비활성 대분류 */}
-          {majors.filter(m => !m.isActive).length > 0 && (
+          {partMajors.filter(m => !m.isActive).length > 0 && (
             <div style={{ marginTop: '0.8rem', padding: '0.6rem 0.8rem', background: 'var(--surface-dim)', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>사용안함 처리된 대분류</div>
-              {majors.filter(m => !m.isActive).map(m => (
+              {partMajors.filter(m => !m.isActive).map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', opacity: 0.6 }}>
                   <span style={{ flex: 1, fontWeight: 500, textDecoration: 'line-through', color: 'var(--text-muted)' }}>{m.name}</span>
                   <button onClick={() => toggleMajorActive(m.id, true)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#22c55e', borderColor: '#22c55e' }}>복원</button>
@@ -286,15 +429,15 @@ export default function SettingsPage() {
       )}
 
       {/* 중분류 관리 */}
-      {activeTeamId && (
+      {activeTeamId && selectedPartId && (
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
-            중분류 관리 {isSuperAdmin && <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 500 }}>— {activeTeamName}</span>}
+            중분류 관리 {sectionSuffix(` / 파트: ${selectedPart?.name ?? ''}`)}
           </h3>
-          {majors.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>대분류를 먼저 추가해주세요.</p>}
-          {majors.filter(m => m.isActive).map(major => {
-            const activeCats = categories.filter(c => c.major === major.name && c.isActive);
-            const inactiveCats = categories.filter(c => c.major === major.name && !c.isActive);
+          {partMajors.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>대분류를 먼저 추가해주세요.</p>}
+          {partMajors.filter(m => m.isActive).map(major => {
+            const activeCats = partCategories.filter(c => c.major === major.name && c.isActive);
+            const inactiveCats = partCategories.filter(c => c.major === major.name && !c.isActive);
             return (
               <div key={major.id} style={{ marginBottom: '1.5rem' }}>
                 <h4 style={{ color: 'var(--primary)', marginBottom: '0.5rem', fontWeight: 700 }}>{major.name}</h4>
