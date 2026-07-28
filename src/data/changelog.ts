@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 
 const changelog: ChangelogEntry[] = [
   {
+    date: '2026-07-28',
+    title: 'v3.0.1 보고 보기 오류 수정',
+    items: [
+      '대시보드에서 표가 포함된 보고를 "보기" 했을 때 화면이 열리지 않던 오류 수정',
+      '보기 화면에서도 표가 취합본과 동일하게 표시되도록 개선',
+    ]
+  },
+  {
     date: '2026-07-24',
     title: 'v3.0 서비스본부 전체 확장',
     items: [

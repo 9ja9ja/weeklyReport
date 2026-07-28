@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { getWeekNumber, getWeekRange, formatDateShort } from '@/lib/weekUtils';
 import WeekCalendar from '@/components/WeekCalendar';
+import { type ContentBlock, isTableBlock } from '@/lib/reportBlocks';
+import { TableBlockView } from '@/components/TableBlock';
 
 interface WeekStatus { year: number; weekNum: number; hasReport: boolean; updatedAt: string | null; isLocked?: boolean; }
 interface Category { id: number; major: string; middle: string; }
 
-type Bullet = { id: string; text: string };
-type SubBlock = { id: string; subText: string; bullets: Bullet[] };
-type CateData = { current: SubBlock[]; next: SubBlock[] };
+type CateData = { current: ContentBlock[]; next: ContentBlock[] };
 
 interface TeamMemberStatus { id: number; name: string; role: string; position?: string; isPrimary?: boolean; hasReport: boolean; lastUpdated: string | null; }
 
@@ -81,6 +81,25 @@ export default function DashboardPage() {
       setModalData({ year, weekNum, data: dataMap });
     } catch { alert('조회 실패'); }
     finally { setModalLoading(false); }
+  };
+
+  /** 표 블록은 TableBlockView 로, 그 외는 ①②③ + 불릿으로 (write/summary 와 동일 규칙, 번호는 표를 건너뛴다) */
+  const renderBlocks = (blocks: ContentBlock[]) => {
+    if (!blocks?.length) return <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>없음</span>;
+    let seq = -1;
+    return blocks.map(b => {
+      if (isTableBlock(b)) return <TableBlockView key={b.id} block={b} />;
+      seq += 1;
+      const mark = seq < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[seq] : `(${seq + 1})`;
+      return (
+        <div key={b.id} style={{ marginBottom: '0.3rem' }}>
+          <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{mark} {b.subText}</div>
+          {(b.bullets ?? []).map(x => (
+            <div key={x.id} style={{ paddingLeft: '1.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>- {x.text}</div>
+          ))}
+        </div>
+      );
+    });
   };
 
   const formatDT = (s: string | null) => { if (!s) return '-'; const d = new Date(s); return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
@@ -196,13 +215,11 @@ export default function DashboardPage() {
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             <div>
                               <div style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', paddingBottom: '0.2rem', marginBottom: '0.3rem' }}>금주</div>
-                              {(d.current || []).map((s, i) => (<div key={s.id} style={{ marginBottom: '0.3rem' }}><div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{i < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[i] : `(${i+1})`} {s.subText}</div>{s.bullets.map(b => <div key={b.id} style={{ paddingLeft: '1.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>- {b.text}</div>)}</div>))}
-                              {!d.current?.length && <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>없음</span>}
+                              {renderBlocks(d.current)}
                             </div>
                             <div>
                               <div style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', paddingBottom: '0.2rem', marginBottom: '0.3rem' }}>차주</div>
-                              {(d.next || []).map((s, i) => (<div key={s.id} style={{ marginBottom: '0.3rem' }}><div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{i < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[i] : `(${i+1})`} {s.subText}</div>{s.bullets.map(b => <div key={b.id} style={{ paddingLeft: '1.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>- {b.text}</div>)}</div>))}
-                              {!d.next?.length && <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>없음</span>}
+                              {renderBlocks(d.next)}
                             </div>
                           </div>
                         </div>
