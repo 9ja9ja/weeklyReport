@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireTeamMaster, requireSuperAdmin } from '@/lib/auth';
+import { requireTeamMaster, requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import bcrypt from 'bcryptjs';
 
 export async function GET(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const teamId = parseInt(searchParams.get('teamId') || '0');
     const withStatus = searchParams.get('withStatus') === 'true';
@@ -49,10 +51,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { name, teamId, position, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { name, teamId, position } = await request.json();
     if (!name?.trim()) return NextResponse.json({ error: '이름을 입력해주세요.' }, { status: 400 });
     if (!teamId) return NextResponse.json({ error: '팀을 선택해주세요.' }, { status: 400 });
-    if (!await requireTeamMaster(requestUserId, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     const newUser = await prisma.user.create({
       data: {
@@ -74,9 +78,11 @@ export async function POST(request: Request) {
 /** 겸직 추가/해제 — PUT /api/users  { targetUserId, teamId, action: 'add'|'remove' } */
 export async function PUT(request: Request) {
   try {
-    const { targetUserId, teamId, action, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { targetUserId, teamId, action } = await request.json();
     if (!targetUserId || !teamId) return NextResponse.json({ error: '입력값을 확인해주세요.' }, { status: 400 });
-    if (!await requireTeamMaster(requestUserId, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     const target = await prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -102,13 +108,14 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
-    const requestUserId = parseInt(searchParams.get('requestUserId') || '0');
 
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     await prisma.user.delete({ where: { id } });
     return NextResponse.json({ success: true });
@@ -119,14 +126,16 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { targetUserId, role, requestUserId, resetPassword } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { targetUserId, role, resetPassword } = await request.json();
 
     const target = await prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     // 비밀번호 초기화
     if (resetPassword) {
-      if (!await requireTeamMaster(requestUserId, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+      if (!await requireTeamMaster(me, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
       const hashed = await bcrypt.hash('0000', 10);
       await prisma.user.update({ where: { id: targetUserId }, data: { password: hashed, mustChangePw: true } });
       return NextResponse.json({ success: true });
@@ -136,12 +145,12 @@ export async function PATCH(request: Request) {
     if (typeof role === 'string') {
       // superAdmin / executive 설정은 superAdmin만 가능
       if (role === 'superAdmin' || role === 'executive') {
-        if (!await requireSuperAdmin(requestUserId)) return NextResponse.json({ error: '최고관리자만 가능합니다.' }, { status: 403 });
+        if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자만 가능합니다.' }, { status: 403 });
       } else {
-        if (!await requireTeamMaster(requestUserId, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+        if (!await requireTeamMaster(me, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
       }
       // 자기 자신의 권한 해제 방지
-      if (requestUserId === targetUserId && target.role !== 'user' && role === 'user') {
+      if (me === targetUserId && target.role !== 'user' && role === 'user') {
         return NextResponse.json({ error: '본인의 권한은 해제할 수 없습니다.' }, { status: 400 });
       }
       await prisma.user.update({ where: { id: targetUserId }, data: { role } });

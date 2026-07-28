@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireOverviewAccess } from '@/lib/auth';
+import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
 import { exportHtmlToDrive, isDriveConfigured } from '@/lib/googleDrive';
 import { buildOverviewHtml, type DocTeam } from '@/lib/overviewDoc';
 import { getWeekRange } from '@/lib/weekUtils';
@@ -30,23 +30,24 @@ export async function GET() {
 
 /**
  * POST /api/overview/export
- * { year, weekNum, requestUserId, teamId?, onlyFilled?, includeAuthor? }
+ * { year, weekNum, teamId?, onlyFilled?, includeAuthor? }   (요청자 신원은 세션 쿠키)
  *
  * 전체 취합본을 기존 문서 양식으로 만들어 구글 드라이브
  * <루트>/<연도>/<월> 폴더에 구글 문서로 저장한다.
  */
 export async function POST(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const body = await request.json();
     const year = parseInt(body.year, 10);
     const weekNum = parseInt(body.weekNum, 10);
-    const requestUserId = parseInt(body.requestUserId, 10);
     const teamId = body.teamId ? parseInt(body.teamId, 10) : null;
     const onlyFilled = body.onlyFilled !== false;
     const includeAuthor = body.includeAuthor !== false;
 
     if (!year || !weekNum) return NextResponse.json({ error: 'year, weekNum required' }, { status: 400 });
-    if (!(await requireOverviewAccess(requestUserId))) {
+    if (!(await requireOverviewAccess(me))) {
       return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
     if (!isDriveConfigured()) {

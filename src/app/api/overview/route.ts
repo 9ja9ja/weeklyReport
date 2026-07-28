@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireOverviewAccess } from '@/lib/auth';
+import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
 import type { ContentBlock } from '@/lib/reportBlocks';
 
 type CateData = { current: ContentBlock[]; next: ContentBlock[] };
@@ -26,20 +26,21 @@ function safeParseBlocks(str: string): ContentBlock[] {
 }
 
 /**
- * GET /api/overview?year=2026&weekNum=30&requestUserId=1
+ * GET /api/overview?year=2026&weekNum=30   (요청자 신원은 세션 쿠키에서 읽는다)
  *
  * 전체 팀의 주간보고를 구분 > 팀 > 파트 > 대분류 > 중분류 계층으로 반환한다.
  * 취합본(SummaryData)이 있으면 그것을, 없으면 개별 보고를 합쳐서 채운다.
  */
 export async function GET(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const year = parseInt(searchParams.get('year') || '0');
     const weekNum = parseInt(searchParams.get('weekNum') || '0');
-    const requestUserId = parseInt(searchParams.get('requestUserId') || '0');
 
     if (!year || !weekNum) return NextResponse.json({ error: 'year, weekNum required' }, { status: 400 });
-    if (!(await requireOverviewAccess(requestUserId))) {
+    if (!(await requireOverviewAccess(me))) {
       return NextResponse.json({ error: '전체 취합본 조회 권한이 없습니다.' }, { status: 403 });
     }
 

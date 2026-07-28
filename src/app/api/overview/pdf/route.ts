@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireOverviewAccess } from '@/lib/auth';
+import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
 import { buildOverviewHtml, type DocTeam } from '@/lib/overviewDoc';
 import { getWeekRange } from '@/lib/weekUtils';
 import type { ContentBlock } from '@/lib/reportBlocks';
@@ -31,16 +31,17 @@ function safeBlocks(str: string): ContentBlock[] {
  */
 export async function POST(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const body = await request.json();
     const year = parseInt(body.year, 10);
     const weekNum = parseInt(body.weekNum, 10);
-    const requestUserId = parseInt(body.requestUserId, 10);
     const teamId = body.teamId ? parseInt(body.teamId, 10) : null;
     const onlyFilled = body.onlyFilled !== false;
     const includeAuthor = body.includeAuthor !== false;
 
     if (!year || !weekNum) return NextResponse.json({ error: 'year, weekNum required' }, { status: 400 });
-    if (!(await requireOverviewAccess(requestUserId))) {
+    if (!(await requireOverviewAccess(me))) {
       return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 

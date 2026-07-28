@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getUserTeams } from '@/lib/auth';
 import bcrypt from 'bcryptjs';
+import { createSession } from '@/lib/session';
 
 export async function POST(request: Request) {
   try {
@@ -29,12 +30,14 @@ export async function POST(request: Request) {
       if (password !== '0000') return NextResponse.json({ error: '비밀번호가 일치하지 않습니다. (초기 비밀번호: 0000)' }, { status: 401 });
       const hashed = await bcrypt.hash('0000', 10);
       await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+      await createSession(user.id);
       return NextResponse.json({ success: true, user: await buildSession(), mustChangePw: true });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) return NextResponse.json({ error: '비밀번호가 일치하지 않습니다.' }, { status: 401 });
 
+    await createSession(user.id);
     return NextResponse.json({ success: true, user: await buildSession(), mustChangePw: user.mustChangePw });
   } catch (error) {
     console.error('Login error:', error);

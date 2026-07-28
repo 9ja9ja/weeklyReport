@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth';
+import { requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { getPrevWeek } from '@/lib/weekUtils';
 
 export async function GET(request: Request) {
@@ -78,9 +78,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { name, division, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { name, division } = await request.json();
     if (!name?.trim()) return NextResponse.json({ error: '팀 이름을 입력해주세요.' }, { status: 400 });
-    if (!await requireSuperAdmin(requestUserId)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
+    if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
 
     const last = await prisma.team.findFirst({ orderBy: { orderIdx: 'desc' } });
     const team = await prisma.team.create({
@@ -95,10 +97,11 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
-    const requestUserId = parseInt(searchParams.get('requestUserId') || '0');
-    if (!await requireSuperAdmin(requestUserId)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
+    if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
     await prisma.team.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -108,8 +111,10 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { id, newName, division, requestUserId } = await request.json();
-    if (!await requireSuperAdmin(requestUserId)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { id, newName, division } = await request.json();
+    if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
 
     const data: { name?: string; division?: string } = {};
     if (newName?.trim()) data.name = newName.trim();

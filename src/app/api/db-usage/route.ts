@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { currentUserId, unauthorized } from '@/lib/auth';
 
 /**
  * DB 사용량 / 무료 플랜 대비 사용률
@@ -14,6 +15,8 @@ let cache: { at: number; payload: unknown } | null = null;
 const TTL_MS = 60_000;
 
 export async function GET() {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
   if (cache && Date.now() - cache.at < TTL_MS) {
     return NextResponse.json(cache.payload);
   }

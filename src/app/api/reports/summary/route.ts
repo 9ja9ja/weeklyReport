@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireTeamMaster } from '@/lib/auth';
+import { requireTeamMaster, currentUserId, unauthorized } from '@/lib/auth';
 
 export async function GET(request: Request) {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
   const { searchParams } = new URL(request.url);
   const year = parseInt(searchParams.get('year') || '0');
   const weekNum = parseInt(searchParams.get('weekNum') || '0');
@@ -28,9 +30,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { year, weekNum, teamId, contents, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { year, weekNum, teamId, contents } = await request.json();
     if (!teamId) return NextResponse.json({ error: 'teamId required' }, { status: 400 });
-    if (!await requireTeamMaster(requestUserId, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     const lock = await prisma.summaryLock.findUnique({ where: { teamId_year_weekNum: { teamId, year, weekNum } } });
     if (lock?.isLocked) return NextResponse.json({ error: '잠금 상태에서는 저장할 수 없습니다.' }, { status: 403 });

@@ -34,11 +34,11 @@ function WriteContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const userId = searchParams.get('userId');
-  const userName = searchParams.get('name');
   const paramYear = searchParams.get('year');
   const paramWeek = searchParams.get('weekNum');
-  const { teamId, teams, isHydrating } = useUser();
+  // 작성 대상은 언제나 로그인한 본인이다.
+  // (URL 의 userId/name 은 무시한다 — 예전에는 이 값으로 남의 보고를 열 수 있었다)
+  const { userId, userName, teamId, teams, isHydrating } = useUser();
 
   const [year, setYear] = useState(paramYear ? parseInt(paramYear, 10) : new Date().getFullYear());
   const [weekNum, setWeekNum] = useState(paramWeek ? parseInt(paramWeek, 10) : getWeekNumber(new Date()));
@@ -209,7 +209,7 @@ function WriteContent() {
       const res = await fetch('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: parseInt(userId as string), year, weekNum, items })
+        body: JSON.stringify({ year, weekNum, items })
       });
       if (res.ok) alert('저장되었습니다.');
       else {

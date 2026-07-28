@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { regenerateSummary } from '@/lib/summaryGenerator';
-import { requireTeamAccess } from '@/lib/auth';
+import { currentUserId, unauthorized, forbidden, requireTeamAccess as canAccessTeam, requireTeamMaster } from '@/lib/auth';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -12,8 +12,13 @@ export async function GET(request: Request) {
   const teamId = searchParams.get('teamId');
 
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+
     if (all === 'true' && year && weekNum && teamId) {
       const tid = parseInt(teamId);
+      // 팀 취합 조회 — 그 팀 소속(겸직 포함)이거나 superAdmin 만
+      if (!await canAccessTeam(me, tid)) return forbidden('해당 팀의 보고를 조회할 권한이 없습니다.');
       // 겸직 지원: 작성자의 소속이 아니라 "항목이 속한 팀" 기준으로 취합한다.
       const reports = await prisma.report.findMany({
         where: {
@@ -30,6 +35,13 @@ export async function GET(request: Request) {
     }
 
     if (userId && year && weekNum) {
+      const targetId = parseInt(userId);
+      // 남의 보고는 그 사람 팀의 관리자만 볼 수 있다
+      if (targetId !== me) {
+        const target = await prisma.user.findUnique({ where: { id: targetId }, select: { teamId: true } });
+        if (!target) return NextResponse.json(null);
+        if (!await requireTeamMaster(me, target.teamId)) return forbidden('다른 사용자의 보고를 조회할 권한이 없습니다.');
+      }
       const report = await prisma.report.findUnique({
         where: { userId_year_weekNum: { userId: parseInt(userId), year: parseInt(year), weekNum: parseInt(weekNum) } },
         include: { items: { include: { category: true } } }
@@ -45,8 +57,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { userId, year, weekNum, items } = await request.json();
-    if (!userId || !year || !weekNum || !Array.isArray(items)) return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
+    const { year, weekNum, items } = await request.json();
+
+    // 보고는 언제나 "로그인한 본인" 명의로 저장한다.
+    // (이전에는 body 의 userId 를 그대로 썼기 때문에 남의 보고를 덮어쓸 수 있었다)
+    const userId = await currentUserId();
+    if (!userId) return unauthorized();
+
+    if (!year || !weekNum || !Array.isArray(items)) return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -62,7 +80,7 @@ export async function POST(request: Request) {
 
     // 작성 권한 확인 (주 소속 + 겸직)
     for (const tid of affectedTeamIds) {
-      if (!await requireTeamAccess(userId, tid)) {
+      if (!await canAccessTeam(userId, tid)) {
         return NextResponse.json({ error: '해당 팀의 보고를 작성할 권한이 없습니다.' }, { status: 403 });
       }
     }

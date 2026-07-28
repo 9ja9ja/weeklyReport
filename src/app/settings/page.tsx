@@ -100,36 +100,36 @@ export default function SettingsPage() {
   // ── 팀 관리 ──
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
-    const res = await post('/api/teams', { name: newTeamName.trim(), division: newTeamDivision.trim(), requestUserId: userId });
+    const res = await post('/api/teams', { name: newTeamName.trim(), division: newTeamDivision.trim() });
     if (res.ok) { setNewTeamName(''); setNewTeamDivision(''); fetchTeams(); } else alert((await res.json()).error);
   };
   const deleteTeam = async (id: number, name: string) => {
     if (!confirm(`"${name}" 팀을 삭제하시겠습니까? 모든 데이터가 삭제됩니다.`)) return;
-    const res = await fetch(`/api/teams?id=${id}&requestUserId=${userId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/teams?id=${id}`, { method: 'DELETE' });
     if (res.ok) { if (selectedTeamId === id) setSelectedTeamId(null); fetchTeams(); } else alert((await res.json()).error);
   };
 
   // ── 팀원 관리 ──
   const addUser = async () => {
     if (!newUserName.trim() || !activeTeamId) return;
-    const res = await post('/api/users', { name: newUserName.trim(), teamId: activeTeamId, requestUserId: userId });
+    const res = await post('/api/users', { name: newUserName.trim(), teamId: activeTeamId });
     if (res.ok) { setNewUserName(''); reload(); } else alert((await res.json()).error);
   };
   const addCrossUser = async () => {
     if (!crossUserId || !activeTeamId) return;
-    const res = await post('/api/users', { targetUserId: parseInt(crossUserId, 10), teamId: activeTeamId, action: 'add', requestUserId: userId }, 'PUT');
+    const res = await post('/api/users', { targetUserId: parseInt(crossUserId, 10), teamId: activeTeamId, action: 'add' }, 'PUT');
     if (res.ok) { setCrossUserId(''); reload(); } else alert((await res.json()).error);
   };
   const removeCrossUser = async (targetId: number, name: string) => {
     if (!confirm(`${name}님의 이 팀 겸직을 해제하시겠습니까?`)) return;
-    const res = await post('/api/users', { targetUserId: targetId, teamId: activeTeamId, action: 'remove', requestUserId: userId }, 'PUT');
+    const res = await post('/api/users', { targetUserId: targetId, teamId: activeTeamId, action: 'remove' }, 'PUT');
     if (res.ok) reload(); else alert((await res.json()).error);
   };
   const changeRole = async (targetId: number, currentRole: string) => {
     const newRole = currentRole === 'teamMaster' ? 'user' : 'teamMaster';
     if (targetId === userId && currentRole !== 'user') { alert('본인의 권한은 해제할 수 없습니다.'); return; }
     if (!confirm(newRole === 'teamMaster' ? '관리자로 지정하시겠습니까?' : '일반 사용자로 변경하시겠습니까?')) return;
-    await post('/api/users', { targetUserId: targetId, role: newRole, requestUserId: userId }, 'PATCH');
+    await post('/api/users', { targetUserId: targetId, role: newRole }, 'PATCH');
     reload();
   };
   const toggleExecutive = async (targetId: number, currentRole: string) => {
@@ -138,35 +138,35 @@ export default function SettingsPage() {
     if (!confirm(newRole === 'executive'
       ? '임원으로 지정하시겠습니까?\n\n임원은 모든 팀의 전체 취합본을 조회만 할 수 있고, 작성·편집은 할 수 없습니다.'
       : '임원 권한을 해제하시겠습니까?')) return;
-    const res = await post('/api/users', { targetUserId: targetId, role: newRole, requestUserId: userId }, 'PATCH');
+    const res = await post('/api/users', { targetUserId: targetId, role: newRole }, 'PATCH');
     if (!res.ok) { alert((await res.json()).error); return; }
     reload();
   };
   const resetPassword = async (targetId: number, name: string) => {
     if (!confirm(`${name}님의 비밀번호를 0000으로 초기화하시겠습니까?`)) return;
-    await post('/api/users', { targetUserId: targetId, resetPassword: true, requestUserId: userId }, 'PATCH');
+    await post('/api/users', { targetUserId: targetId, resetPassword: true }, 'PATCH');
     alert('초기화 완료');
   };
   const deleteUser = async (targetId: number, name: string) => {
     if (!confirm(`${name}님을 삭제하시겠습니까?`)) return;
-    await fetch(`/api/users?id=${targetId}&requestUserId=${userId}`, { method: 'DELETE' });
+    await fetch(`/api/users?id=${targetId}`, { method: 'DELETE' });
     reload();
   };
 
   // ── 파트 관리 ──
   const addPart = async () => {
     if (!newPartName.trim() || !activeTeamId) { alert('이름을 입력해주세요.'); return; }
-    const res = await post('/api/parts', { name: newPartName.trim(), teamId: activeTeamId, requestUserId: userId });
+    const res = await post('/api/parts', { name: newPartName.trim(), teamId: activeTeamId });
     if (res.ok) { setNewPartName(''); reload(); } else alert((await res.json()).error);
   };
   const togglePartActive = async (id: number, isActive: boolean) => {
     if (!confirm(isActive ? '파트를 다시 활성화하시겠습니까?' : '파트를 사용안함 처리하시겠습니까?')) return;
-    await post('/api/parts', { id, isActive, requestUserId: userId }, 'PATCH');
+    await post('/api/parts', { id, isActive }, 'PATCH');
     reload();
   };
   const deletePart = async (id: number, name: string) => {
     if (!confirm(`"${name}" 파트를 삭제하시겠습니까?\n\n하위 대분류가 모두 비활성이어야 삭제할 수 있습니다.`)) return;
-    const res = await fetch(`/api/parts?id=${id}&requestUserId=${userId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/parts?id=${id}`, { method: 'DELETE' });
     const d = await res.json();
     if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error);
   };
@@ -178,24 +178,24 @@ export default function SettingsPage() {
     const b = nl.findIndex(p => p.id === active[idx + dir].id);
     [nl[a], nl[b]] = [nl[b], nl[a]];
     setParts(nl);
-    await post('/api/parts', { partIds: nl.map(p => p.id), teamId: activeTeamId, requestUserId: userId }, 'PUT');
+    await post('/api/parts', { partIds: nl.map(p => p.id), teamId: activeTeamId }, 'PUT');
   };
 
   // ── 대분류 관리 ──
   const addMajor = async () => {
     if (!newMajorName.trim() || !selectedPartId) { alert('파트를 선택하고 이름을 입력해주세요.'); return; }
-    const res = await post('/api/majors', { name: newMajorName.trim(), partId: selectedPartId, requestUserId: userId });
+    const res = await post('/api/majors', { name: newMajorName.trim(), partId: selectedPartId });
     if (res.ok) { setNewMajorName(''); reload(); } else alert((await res.json()).error);
   };
   const deleteMajor = async (id: number, name: string) => {
     if (!confirm(`"${name}" 대분류를 삭제하시겠습니까?\n\n사용 이력이 있으면 '사용안함' 처리됩니다.`)) return;
-    const res = await fetch(`/api/majors?id=${id}&requestUserId=${userId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/majors?id=${id}`, { method: 'DELETE' });
     const d = await res.json();
     if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error);
   };
   const toggleMajorActive = async (id: number, isActive: boolean) => {
     if (!confirm(isActive ? '대분류를 다시 활성화하시겠습니까?' : '대분류를 사용안함 처리하시겠습니까?')) return;
-    await post('/api/majors', { id, isActive, requestUserId: userId }, 'PATCH');
+    await post('/api/majors', { id, isActive }, 'PATCH');
     reload();
   };
   const moveMajor = async (idx: number, dir: -1 | 1) => {
@@ -205,7 +205,7 @@ export default function SettingsPage() {
     const a = scoped.findIndex(m => m.id === active[idx].id);
     const b = scoped.findIndex(m => m.id === active[idx + dir].id);
     [scoped[a], scoped[b]] = [scoped[b], scoped[a]];
-    await post('/api/majors', { majorIds: scoped.map(m => m.id), partId: selectedPartId, requestUserId: userId }, 'PUT');
+    await post('/api/majors', { majorIds: scoped.map(m => m.id), partId: selectedPartId }, 'PUT');
     reload();
   };
 
@@ -213,18 +213,18 @@ export default function SettingsPage() {
   const addCategory = async (major: string) => {
     const middle = newMiddle[major]?.trim();
     if (!middle || !selectedPartId) return;
-    const res = await post('/api/categories', { major, middle, partId: selectedPartId, requestUserId: userId });
+    const res = await post('/api/categories', { major, middle, partId: selectedPartId });
     if (res.ok) { setNewMiddle(prev => ({ ...prev, [major]: '' })); reload(); } else alert((await res.json()).error || '실패');
   };
   const deleteCategory = async (catId: number, name: string) => {
     if (!confirm(`"${name}" 중분류를 삭제하시겠습니까?\n\n작성 이력이 있으면 '사용안함' 처리됩니다.`)) return;
-    const res = await fetch(`/api/categories?id=${catId}&requestUserId=${userId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/categories?id=${catId}`, { method: 'DELETE' });
     const d = await res.json();
     if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error || '삭제 실패');
   };
   const toggleCategoryActive = async (catId: number, isActive: boolean) => {
     if (!confirm(isActive ? '중분류를 다시 활성화하시겠습니까?' : '중분류를 사용안함 처리하시겠습니까?')) return;
-    await post('/api/categories', { id: catId, isActive, requestUserId: userId }, 'PATCH');
+    await post('/api/categories', { id: catId, isActive }, 'PATCH');
     reload();
   };
   const moveCategory = async (major: string, idx: number, dir: -1 | 1) => {
@@ -234,7 +234,7 @@ export default function SettingsPage() {
     const a = scoped.findIndex(c => c.id === active[idx].id);
     const b = scoped.findIndex(c => c.id === active[idx + dir].id);
     [scoped[a], scoped[b]] = [scoped[b], scoped[a]];
-    await post('/api/categories', { categoryIds: scoped.map(c => c.id), partId: selectedPartId, requestUserId: userId }, 'PUT');
+    await post('/api/categories', { categoryIds: scoped.map(c => c.id), partId: selectedPartId }, 'PUT');
     reload();
   };
 

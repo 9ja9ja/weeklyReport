@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib/auth';
 
 export async function GET(request: Request) {
+  const me = await currentUserId();
+  if (!me) return unauthorized();
+
   const { searchParams } = new URL(request.url);
   const userId = parseInt(searchParams.get('userId') || '0');
   const year = parseInt(searchParams.get('year') || '0');
@@ -15,6 +19,9 @@ export async function GET(request: Request) {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+    // 남의 작성 이력은 그 사람 팀의 관리자만 볼 수 있다
+    if (userId !== me && !await requireTeamMaster(me, user.teamId)) return forbidden();
 
     const weeks: { year: number; weekNum: number }[] = [];
     let y = year, w = weekNum;

@@ -108,6 +108,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
     finally { setIsHydrating(false); }
   }, []);
 
+  /**
+   * 브라우저에 남은 로그인 상태와 서버 세션 쿠키를 대조한다.
+   * 쿠키가 만료됐거나 다른 계정이면 화면상 로그인 상태만 남아 API 가 전부 401 이 되므로,
+   * 이때는 로컬 세션을 정리해 로그인 화면으로 돌려보낸다.
+   */
+  useEffect(() => {
+    if (isHydrating || !session.userId) return;
+    let alive = true;
+    fetch('/api/auth/me')
+      .then(r => (r.ok ? r.json() : { userId: null }))
+      .then(d => {
+        if (!alive) return;
+        if (d.userId !== session.userId) {
+          setSession(defaultSession);
+          sessionStorage.removeItem(STORAGE_KEY);
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHydrating, session.userId]);
+
   const persist = (s: UserSession) => {
     setSession(s);
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -138,6 +160,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const clearUser = () => {
     setSession(defaultSession);
     sessionStorage.removeItem(STORAGE_KEY);
+    // 서버 세션 쿠키도 함께 파기한다 (실패해도 화면상 로그아웃은 진행)
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   };
 
   const activeTeam = session.teams.find(t => t.id === session.activeTeamId);

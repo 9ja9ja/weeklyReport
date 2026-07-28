@@ -181,7 +181,7 @@ export default function SummaryPage() {
     if (isLocked) return;
     setSaving(true);
     try {
-      await fetch('/api/reports/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, contents: JSON.stringify(aggregatedMap), requestUserId: currentUserId }) });
+      await fetch('/api/reports/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, contents: JSON.stringify(aggregatedMap) }) });
       alert('취합본이 저장되었습니다.');
     } catch { alert('저장 실패'); }
     finally { setSaving(false); }
@@ -190,7 +190,7 @@ export default function SummaryPage() {
   const handleToggleLock = async () => {
     const action = isLocked ? '잠금을 해제' : '잠금을 설정';
     if (!confirm(`${year}년 ${weekNum}주차 ${action}하시겠습니까?${!isLocked ? '\n잠금 시 개별 입력과 편집이 차단됩니다.' : ''}`)) return;
-    const res = await fetch('/api/reports/summary/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, isLocked: !isLocked, requestUserId: currentUserId }) });
+    const res = await fetch('/api/reports/summary/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, isLocked: !isLocked }) });
     if (res.ok) { setIsLocked(!isLocked); alert(isLocked ? '잠금 해제됨' : '잠금 설정됨'); }
     else { const d = await res.json(); alert(d.error || '실패'); }
   };

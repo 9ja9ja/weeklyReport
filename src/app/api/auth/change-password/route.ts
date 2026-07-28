@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
+import { getSessionUserId } from '@/lib/session';
 
 export async function POST(request: Request) {
   try {
-    const { userId, currentPassword, newPassword } = await request.json();
+    const { currentPassword, newPassword } = await request.json();
+
+    // 신원은 쿠키에서만 읽는다 — 남의 비밀번호를 바꿀 수 없도록
+    // (특히 초기 비밀번호 0000 계정은 body 의 userId 를 믿으면 누구나 선점할 수 있었다)
+    const userId = await getSessionUserId();
+    if (!userId) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
 
     if (!newPassword || newPassword.length < 4) {
       return NextResponse.json({ error: '새 비밀번호는 4자리 이상이어야 합니다.' }, { status: 400 });

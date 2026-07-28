@@ -47,7 +47,7 @@ export default function OverviewPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/overview?year=${year}&weekNum=${weekNum}&requestUserId=${userId}`);
+      const res = await fetch(`/api/overview?year=${year}&weekNum=${weekNum}`);
       const data = await res.json();
       if (!res.ok) { setError(data.error || '조회 실패'); setTeams([]); return; }
       setTeams(data.teams ?? []);
@@ -80,7 +80,7 @@ export default function OverviewPage() {
       const res = await fetch('/api/overview/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, weekNum, requestUserId: userId, teamId: selectedTeamId, onlyFilled, includeAuthor })
+        body: JSON.stringify({ year, weekNum, teamId: selectedTeamId, onlyFilled, includeAuthor })
       });
       const d = await res.json();
       if (!res.ok) { alert(d.error || '내보내기 실패'); return; }
@@ -100,7 +100,7 @@ export default function OverviewPage() {
       const res = await fetch('/api/overview/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, weekNum, requestUserId: userId, teamId: selectedTeamId, onlyFilled, includeAuthor })
+        body: JSON.stringify({ year, weekNum, teamId: selectedTeamId, onlyFilled, includeAuthor })
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));

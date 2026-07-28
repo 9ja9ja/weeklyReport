@@ -1,4 +1,22 @@
+import { NextResponse } from 'next/server';
 import { prisma } from './db';
+import { getSessionUserId } from './session';
+
+/**
+ * 요청자의 신원 — 세션 쿠키에서만 읽는다.
+ *
+ * 아래 require* 함수들의 첫 인자에는 반드시 이 값을 넘겨야 한다.
+ * 클라이언트가 body/query 로 보낸 requestUserId 를 넘기면 위조가 가능해진다.
+ */
+export async function currentUserId(): Promise<number | null> {
+  return getSessionUserId();
+}
+
+export const unauthorized = () =>
+  NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+
+export const forbidden = (msg = '권한이 필요합니다.') =>
+  NextResponse.json({ error: msg }, { status: 403 });
 
 export async function getUserWithTeam(userId: number) {
   return prisma.user.findUnique({

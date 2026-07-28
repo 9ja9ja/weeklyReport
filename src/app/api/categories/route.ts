@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireTeamMaster, requirePartMaster } from '@/lib/auth';
+import { requireTeamMaster, requirePartMaster, currentUserId, unauthorized } from '@/lib/auth';
 
 /** GET /api/categories?teamId=1 또는 ?partId=3 */
 export async function GET(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const teamId = parseInt(searchParams.get('teamId') || '0');
     const partId = parseInt(searchParams.get('partId') || '0');
@@ -29,12 +31,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { major, middle, partId, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { major, middle, partId } = await request.json();
     if (!major || !middle || !partId) return NextResponse.json({ error: '입력값을 확인해주세요.' }, { status: 400 });
 
     const part = await prisma.part.findUnique({ where: { id: partId }, select: { teamId: true } });
     if (!part) return NextResponse.json({ error: '파트를 찾을 수 없습니다.' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     const last = await prisma.category.findFirst({ where: { major, partId }, orderBy: { orderIdx: 'desc' } });
     const cat = await prisma.category.create({
@@ -51,13 +55,14 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
-    const requestUserId = parseInt(searchParams.get('requestUserId') || '0');
 
     const cat = await prisma.category.findUnique({ where: { id } });
     if (!cat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, cat.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, cat.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     // 보고 이력이 한 건이라도 있으면 지우지 않는다 (영구 보관 정책)
     const usageCount = await prisma.reportItem.count({ where: { categoryId: id } });
@@ -80,10 +85,12 @@ export async function DELETE(request: Request) {
 // 사용안함 처리된 카테고리 복원
 export async function PATCH(request: Request) {
   try {
-    const { id, isActive, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { id, isActive } = await request.json();
     const cat = await prisma.category.findUnique({ where: { id } });
     if (!cat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, cat.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, cat.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
     await prisma.category.update({ where: { id }, data: { isActive } });
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -93,13 +100,15 @@ export async function PATCH(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { categoryIds, partId, teamId, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { categoryIds, partId, teamId } = await request.json();
     if (!Array.isArray(categoryIds)) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
 
     const allowed = partId
-      ? await requirePartMaster(requestUserId, partId)
-      : teamId && requestUserId
-        ? await requireTeamMaster(requestUserId, teamId)
+      ? await requirePartMaster(me, partId)
+      : teamId && me
+        ? await requireTeamMaster(me, teamId)
         : true;
     if (!allowed) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
     await prisma.$transaction(categoryIds.map((id: number, idx: number) => prisma.category.update({ where: { id }, data: { orderIdx: idx } })));

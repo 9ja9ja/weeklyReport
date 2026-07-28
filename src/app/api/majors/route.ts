@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireTeamMaster, requirePartMaster } from '@/lib/auth';
+import { requireTeamMaster, requirePartMaster, currentUserId, unauthorized } from '@/lib/auth';
 
 /** GET /api/majors?teamId=1 또는 ?partId=3 */
 export async function GET(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const teamId = parseInt(searchParams.get('teamId') || '0');
     const partId = parseInt(searchParams.get('partId') || '0');
@@ -29,12 +31,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { name, partId, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { name, partId } = await request.json();
     if (!name?.trim() || !partId) return NextResponse.json({ error: '입력값을 확인해주세요.' }, { status: 400 });
 
     const part = await prisma.part.findUnique({ where: { id: partId }, select: { teamId: true } });
     if (!part) return NextResponse.json({ error: '파트를 찾을 수 없습니다.' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     const last = await prisma.majorCategory.findFirst({ where: { partId }, orderBy: { orderIdx: 'desc' } });
     const result = await prisma.majorCategory.create({
@@ -51,9 +55,11 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { majorIds, partId, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { majorIds, partId } = await request.json();
     if (!Array.isArray(majorIds)) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
-    if (!await requirePartMaster(requestUserId, partId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requirePartMaster(me, partId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     await prisma.$transaction(
       majorIds.map((id: number, idx: number) => prisma.majorCategory.update({ where: { id }, data: { orderIdx: idx } }))
@@ -66,13 +72,14 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
     const { searchParams } = new URL(request.url);
     const id = parseInt(searchParams.get('id') || '0');
-    const requestUserId = parseInt(searchParams.get('requestUserId') || '0');
 
     const major = await prisma.majorCategory.findUnique({ where: { id } });
     if (!major) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, major.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, major.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     // 하위 활성 중분류 존재 여부 (같은 파트 안에서만 판단)
     const activeCatCount = await prisma.category.count({
@@ -100,10 +107,12 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { id, newName, isActive, requestUserId } = await request.json();
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { id, newName, isActive } = await request.json();
     const old = await prisma.majorCategory.findUnique({ where: { id } });
     if (!old) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(requestUserId, old.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamMaster(me, old.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     if (typeof isActive === 'boolean') {
       await prisma.majorCategory.update({ where: { id }, data: { isActive } });
