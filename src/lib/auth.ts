@@ -40,12 +40,18 @@ export async function getUserTeams(userId: number) {
   }));
 }
 
-/** superAdmin 또는 해당 팀의 teamMaster인지 확인 (팀 마스터 권한은 주 소속 팀에만 적용) */
+/** superAdmin 또는 해당 팀의 teamMaster인지 확인 (주 소속 팀 + 겸직 팀 모두 포함) */
 export async function requireTeamMaster(requestUserId: number, teamId: number): Promise<boolean> {
   const user = await prisma.user.findUnique({ where: { id: requestUserId } });
   if (!user) return false;
   if (user.role === 'superAdmin') return true;
-  return user.role === 'teamMaster' && user.teamId === teamId;
+  if (user.role !== 'teamMaster') return false;
+  if (user.teamId === teamId) return true;
+
+  const link = await prisma.userTeam.findUnique({
+    where: { userId_teamId: { userId: requestUserId, teamId } }
+  });
+  return !!link;
 }
 
 /** superAdmin인지 확인 */
@@ -75,6 +81,12 @@ export async function requireTeamAccess(requestUserId: number, teamId: number): 
     where: { userId_teamId: { userId: requestUserId, teamId } }
   });
   return !!link;
+}
+
+/** teamMaster 이상(teamMaster | superAdmin) 여부 확인 */
+export async function requireMasterOrAbove(requestUserId: number): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: requestUserId }, select: { role: true } });
+  return user?.role === 'superAdmin' || user?.role === 'teamMaster';
 }
 
 /** 파트가 속한 팀 기준으로 마스터 권한 확인 */
