@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber, getWeekRange, formatDateShort } from '@/lib/weekUtils';
+import { getWeekNumber, getWeekRange, getPrevWeek, formatDateShort } from '@/lib/weekUtils';
 import { type ContentBlock, isTableBlock, tableToHtml, tableToText } from '@/lib/reportBlocks';
 import { TableBlockView } from '@/components/TableBlock';
 
@@ -29,8 +29,9 @@ export default function OverviewPage() {
   const router = useRouter();
 
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [weekNum, setWeekNum] = useState(getWeekNumber(now));
+  const defaultWeek = getPrevWeek(now.getFullYear(), getWeekNumber(now));
+  const [year, setYear] = useState(defaultWeek.year);
+  const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [teams, setTeams] = useState<OvTeam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

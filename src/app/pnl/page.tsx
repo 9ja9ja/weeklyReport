@@ -22,8 +22,9 @@ export default function PnlReportPage() {
   const router = useRouter();
 
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [weekNum, setWeekNum] = useState(getWeekNumber(now));
+  const defaultWeek = getPrevWeek(now.getFullYear(), getWeekNumber(now));
+  const [year, setYear] = useState(defaultWeek.year);
+  const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [report, setReport] = useState<PnlReportData | null>(null);
   const [categories, setCategories] = useState<PnlCategoryInput[]>([]);
   const [loading, setLoading] = useState(true);

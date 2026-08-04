@@ -24,8 +24,9 @@ export default function SchedulePage() {
   const router = useRouter();
 
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [weekNum, setWeekNum] = useState(getWeekNumber(now));
+  const defaultWeek = getPrevWeek(now.getFullYear(), getWeekNumber(now));
+  const [year, setYear] = useState(defaultWeek.year);
+  const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');

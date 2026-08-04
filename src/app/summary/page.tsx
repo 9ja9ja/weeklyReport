@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useHistory } from '@/lib/useHistory';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber } from '@/lib/weekUtils';
+import { getWeekNumber, getPrevWeek } from '@/lib/weekUtils';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
   isTableBlock, generateId, createSubBlock, createTableBlock,
@@ -43,8 +43,9 @@ interface ReportItem {
 }
 
 export default function SummaryPage() {
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [weekNum, setWeekNum] = useState(getWeekNumber(new Date()));
+  const defaultWeek = getPrevWeek(new Date().getFullYear(), getWeekNumber(new Date()));
+  const [year, setYear] = useState(defaultWeek.year);
+  const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [categories, setCategories] = useState<Category[]>([]);
   const [majors, setMajors] = useState<MajorInfo[]>([]);
   const [loading, setLoading] = useState(true);
