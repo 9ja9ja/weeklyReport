@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { currentUserId, unauthorized, forbidden, requireMasterOrAbove } from '@/lib/auth';
+import { currentUserId, unauthorized, forbidden, requireMasterOrAbove, requireOverviewAccess } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   const uid = await currentUserId();
   if (!uid) return unauthorized();
-  if (!(await requireMasterOrAbove(uid))) return forbidden('관리자 이상만 접근할 수 있습니다.');
+  if (!(await requireOverviewAccess(uid))) return forbidden('조회 권한이 없습니다.');
 
   const { searchParams } = req.nextUrl;
   const year = parseInt(searchParams.get('year') || '');

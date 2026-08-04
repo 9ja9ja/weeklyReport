@@ -20,7 +20,7 @@ interface BriefData {
 }
 
 export default function BriefPage() {
-  const { userId, isMasterOrAbove, isHydrating } = useUser();
+  const { userId, isMasterOrAbove, canViewOverview, isHydrating } = useUser();
   const router = useRouter();
 
   const now = new Date();
@@ -37,8 +37,8 @@ export default function BriefPage() {
   contentRef.current = content;
 
   useEffect(() => {
-    if (!isHydrating && (!userId || !isMasterOrAbove)) router.replace('/');
-  }, [isHydrating, userId, isMasterOrAbove, router]);
+    if (!isHydrating && (!userId || !canViewOverview)) router.replace('/');
+  }, [isHydrating, userId, canViewOverview, router]);
 
   const range = getWeekRange(year, weekNum);
   const weekLabel = `${year}year ${weekNum}week (${formatDateShort(range.monday)}~${formatDateShort(range.friday)})`;
@@ -169,6 +169,7 @@ export default function BriefPage() {
   };
 
   const isLocked = brief?.isLocked ?? false;
+  const editable = isMasterOrAbove && !isLocked;
 
   if (isHydrating || !userId) return null;
 
@@ -186,19 +187,23 @@ export default function BriefPage() {
             </span>
           </div>
           <div className="brief-actions">
-            {!brief?.content && !content && (
+            {isMasterOrAbove && !brief?.content && !content && (
               <button onClick={copyFromPrev} className="btn btn-sm">전주차 복사</button>
             )}
-            {brief?.content && !isLocked && (
+            {isMasterOrAbove && brief?.content && !isLocked && (
               <button onClick={copyFromPrev} className="btn btn-sm">전주차 복사</button>
             )}
             <button onClick={exportPdf} className="btn btn-sm">PDF 내보내기</button>
-            <button onClick={save} disabled={saving || isLocked} className="btn btn-primary btn-sm">
-              {saving ? '저장 중...' : '저장'}
-            </button>
-            <button onClick={toggleLock} className={`btn btn-sm ${isLocked ? 'btn-danger' : ''}`}>
-              {isLocked ? '잠금 해제' : '잠금'}
-            </button>
+            {isMasterOrAbove && (
+              <>
+                <button onClick={save} disabled={saving || isLocked} className="btn btn-primary btn-sm">
+                  {saving ? '저장 중...' : '저장'}
+                </button>
+                <button onClick={toggleLock} className={`btn btn-sm ${isLocked ? 'btn-danger' : ''}`}>
+                  {isLocked ? '잠금 해제' : '잠금'}
+                </button>
+              </>
+            )}
           </div>
         </div>
         {msg && (
@@ -209,17 +214,22 @@ export default function BriefPage() {
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>로딩 중...</div>
+        ) : !brief?.content && !content && !isMasterOrAbove ? (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>등록된 요약본이 없습니다.</div>
         ) : (
           <>
             <div className="brief-title-row">
-              <input
-                type="text"
-                value={title}
-                onChange={e => { setTitle(e.target.value); setDirty(true); }}
-                placeholder="문서 제목 (예: 서비스본부 주간보고)"
-                disabled={isLocked}
-                className="brief-title-input"
-              />
+              {editable ? (
+                <input
+                  type="text"
+                  value={title}
+                  onChange={e => { setTitle(e.target.value); setDirty(true); }}
+                  placeholder="문서 제목 (예: 서비스본부 주간보고)"
+                  className="brief-title-input"
+                />
+              ) : (
+                <h3 style={{ margin: 0 }}>{title}</h3>
+              )}
               {isLocked && (
                 <span className="brief-lock-badge">잠금됨</span>
               )}
@@ -227,7 +237,7 @@ export default function BriefPage() {
             <BriefEditor
               content={content}
               onChange={html => { contentRef.current = html; setContent(html); setDirty(true); }}
-              editable={!isLocked}
+              editable={editable}
             />
           </>
         )}

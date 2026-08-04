@@ -30,7 +30,7 @@ export default function Navigation() {
         {userId && !isExecutive && <Link href="/dashboard" onClick={closeMenu}>홈</Link>}
         {userId && !isExecutive && <Link href="/summary" onClick={closeMenu}>팀별 취합본</Link>}
         {canViewOverview && <Link href="/overview" onClick={closeMenu} style={{ color: 'var(--primary)', fontWeight: 700 }}>전체 취합본</Link>}
-        {isMasterOrAbove && <Link href="/brief" onClick={closeMenu}>요약본</Link>}
+        {canViewOverview && <Link href="/brief" onClick={closeMenu}>요약본</Link>}
         {canViewOverview && <Link href="/schedule" onClick={closeMenu}>일정보고</Link>}
         {canViewOverview && <Link href="/pnl" onClick={closeMenu}>손익보고</Link>}
         {isMasterOrAbove && <Link href="/settings" onClick={closeMenu} style={{ color: 'var(--primary)' }}>설정</Link>}
