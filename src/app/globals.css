@@ -798,6 +798,12 @@ select.input-field option {
 }
 @media (prefers-color-scheme: dark) {
   .brief-editor-content .tiptap table th { background: var(--inner-bg); }
+  /* 인라인 배경색(파스텔 강조색 등)이 박힌 셀은 다크모드에서도 항상 밝은 배경이므로
+     글자색을 어둡게 고정한다 — 안 그러면 밝은 기본 글자색과 겹쳐 안 보인다 */
+  .brief-editor-content .tiptap table td[style*="background"],
+  .brief-editor-content .tiptap table th[style*="background"] {
+    color: #1a1a1a !important;
+  }
 }
 .brief-editor-content .tiptap table .selectedCell {
   background: var(--primary-alpha-light);
