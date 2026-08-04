@@ -164,3 +164,76 @@ model SummaryLock {
 
   @@unique([teamId, year, weekNum])
 }
+
+model Brief {
+  id        Int       @id @default(autoincrement())
+  year      Int
+  weekNum   Int
+  title     String    @default("")
+  content   String    @default("")
+  isLocked  Boolean   @default(false)
+  lockedBy  Int?
+  lockedAt  DateTime?
+  createdBy Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([year, weekNum])
+}
+
+model ScheduleReport {
+  id        Int       @id @default(autoincrement())
+  year      Int
+  weekNum   Int
+  title     String    @default("")
+  content   String    @default("")
+  isLocked  Boolean   @default(false)
+  lockedBy  Int?
+  lockedAt  DateTime?
+  createdBy Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([year, weekNum])
+}
+
+model PnlReport {
+  id        Int       @id @default(autoincrement())
+  year      Int
+  weekNum   Int
+  isLocked  Boolean   @default(false)
+  lockedBy  Int?
+  lockedAt  DateTime?
+  createdBy Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  categories PnlCategory[]
+
+  @@unique([year, weekNum])
+}
+
+// 카테고리(Pharos, BIG 등)별 손익 지표 — v1(이전 버전) → v2(최신 버전) 비교
+model PnlCategory {
+  id       Int       @id @default(autoincrement())
+  reportId Int
+  report   PnlReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  orderIdx Int       @default(0)
+
+  name    String // "Pharos", "책무구조관리 - 솔루션" 등
+  v1Label String @default("") // "v1.41(07.20.)"
+  v2Label String @default("") // "v1.43(07.30.)"
+
+  revenueV1      Float @default(0) // 매출금액
+  revenueV2      Float @default(0)
+  costV1         Float @default(0) // 투입원가
+  costV2         Float @default(0)
+  grossProfitV1  Float @default(0) // 매출이익
+  grossProfitV2  Float @default(0)
+  opProfitV1     Float @default(0) // 영업이익
+  opProfitV2     Float @default(0)
+
+  note String @default("") // "※ ..." 각주
+
+  @@index([reportId])
+}
