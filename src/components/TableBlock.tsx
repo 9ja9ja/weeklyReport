@@ -9,7 +9,10 @@ import {
   removeRow,
   addColumn,
   removeColumn,
-  parseClipboardTable
+  parseClipboardTable,
+  isNumericCell,
+  numericCellColor,
+  formatNumericCell
 } from '@/lib/reportBlocks';
 
 const cellBase: React.CSSProperties = {
@@ -29,12 +32,12 @@ const inputBase: React.CSSProperties = {
   fontFamily: 'inherit'
 };
 
-/** 증감 표기(-2 / +4)를 문서와 같은 색으로 */
-function deltaStyle(v: string): React.CSSProperties {
-  const s = v.trim();
-  if (/^[-−]\d/.test(s)) return { color: '#2563eb', fontWeight: 600 };
-  if (/^\+\d/.test(s)) return { color: '#dc2626', fontWeight: 600 };
-  return {};
+/** 숫자 셀(증감 기호 포함)은 우측 정렬 + 색상, 텍스트 셀은 좌측 정렬 */
+function cellStyle(v: string): React.CSSProperties {
+  if (!v.trim()) return {};
+  if (!isNumericCell(v)) return { textAlign: 'left' };
+  const color = numericCellColor(v);
+  return { textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...(color ? { color, fontWeight: 700 } : {}) };
 }
 
 interface EditorProps {
@@ -179,7 +182,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
                     <input
                       value={v}
                       onChange={e => onChange(setCell(block, r, c, e.target.value))}
-                      style={{ ...inputBase, ...deltaStyle(v) }}
+                      style={{ ...inputBase, ...cellStyle(v) }}
                     />
                   </td>
                 ))}
@@ -288,7 +291,8 @@ export function TableBlockView({ block }: { block: TableBlock }) {
                     background: 'var(--surface-dim)',
                     padding: '0.2rem 0.5rem',
                     fontWeight: 700,
-                    whiteSpace: 'nowrap'
+                    whiteSpace: 'nowrap',
+                    textAlign: 'center'
                   }}
                 >
                   {h}
@@ -307,10 +311,10 @@ export function TableBlockView({ block }: { block: TableBlock }) {
                       padding: '0.2rem 0.5rem',
                       textAlign: 'center',
                       whiteSpace: 'nowrap',
-                      ...deltaStyle(v)
+                      ...cellStyle(v)
                     }}
                   >
-                    {v}
+                    {isNumericCell(v) ? formatNumericCell(v) : v}
                   </td>
                 ))}
               </tr>

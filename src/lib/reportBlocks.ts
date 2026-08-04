@@ -143,12 +143,50 @@ function parseTsv(text: string | null | undefined): string[][] | null {
 
 // ── 복사용 직렬화 ─────────────────────────────────────────────
 
-/** 셀 값이 음수(-2)면 파랑, 양수(+4)면 빨강 — 문서의 증감 표기 관례 */
-function deltaColor(v: string): string | null {
-  const s = v.trim();
-  if (/^[-−]\d/.test(s)) return '#0070c0';
-  if (/^\+\d/.test(s)) return '#ff0000';
+const LEADING_SIGN_RE = /^([△▲▽▼+\-−±])\s*/;
+const TRAILING_UNIT_RE = /[^\d.,]+$/;
+
+/** 앞의 기호/화살표(△▲▽▼±)와 뒤의 단위(%, 건, MM 등)를 떼어낸 숫자 핵심부만 반환 */
+function numericCore(raw: string): string {
+  const noLead = raw.trim().replace(LEADING_SIGN_RE, '');
+  return noLead.replace(TRAILING_UNIT_RE, '');
+}
+
+/** 셀이 숫자 표기(증감 기호·단위 포함)인지 판정 — 아니면 일반 텍스트로 취급 */
+export function isNumericCell(raw: string): boolean {
+  const core = numericCore(raw);
+  return core !== '' && /^[\d,]+(\.\d+)?$/.test(core);
+}
+
+/**
+ * 숫자 셀의 색상 — 손익보고와 같은 관례:
+ * 증가(△▲ 또는 +) 빨강, 감소(▽▼ 또는 -/−) 파랑, 동일(±) 무채색
+ */
+export function numericCellColor(raw: string): string | null {
+  if (!isNumericCell(raw)) return null;
+  const m = raw.trim().match(LEADING_SIGN_RE);
+  const sign = m?.[1];
+  if (sign === '△' || sign === '▲' || sign === '+') return '#dc2626';
+  if (sign === '▽' || sign === '▼' || sign === '-' || sign === '−') return '#2563eb';
   return null;
+}
+
+/** 숫자 셀을 천단위 콤마로 재포맷 (기호·단위는 그대로 유지). 숫자가 아니면 원문 반환 */
+export function formatNumericCell(raw: string): string {
+  const s = raw.trim();
+  const leadMatch = s.match(LEADING_SIGN_RE);
+  const prefix = leadMatch ? leadMatch[0] : '';
+  const rest = s.slice(prefix.length);
+  const suffixMatch = rest.match(TRAILING_UNIT_RE);
+  const suffix = suffixMatch ? suffixMatch[0] : '';
+  const core = suffix ? rest.slice(0, rest.length - suffix.length) : rest;
+  if (core === '' || !/^[\d,]+(\.\d+)?$/.test(core)) return raw;
+
+  const num = Number(core.replace(/,/g, ''));
+  if (!Number.isFinite(num)) return raw;
+  const decimals = core.includes('.') ? core.split('.')[1].length : 0;
+  const formatted = num.toLocaleString('ko-KR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return prefix + formatted + suffix;
 }
 
 export function tableToText(t: TableBlock, indent = '     '): string {
@@ -167,9 +205,11 @@ export function tableToHtml(t: TableBlock): string {
     .map(row => {
       const tds = row
         .map(v => {
-          const color = deltaColor(v);
-          const style = color ? `${cell}text-align:center;color:${color};` : `${cell}text-align:center;`;
-          return `<td style="${style}">${escapeHtml(v)}</td>`;
+          if (!v.trim()) return `<td style="${cell}text-align:left;">${escapeHtml(v)}</td>`;
+          if (!isNumericCell(v)) return `<td style="${cell}text-align:left;">${escapeHtml(v)}</td>`;
+          const color = numericCellColor(v);
+          const style = `${cell}text-align:right;${color ? `color:${color};font-weight:bold;` : ''}`;
+          return `<td style="${style}">${escapeHtml(formatNumericCell(v))}</td>`;
         })
         .join('');
       return `<tr>${tds}</tr>`;
