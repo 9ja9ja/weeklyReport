@@ -7,7 +7,10 @@
     "build": "prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:db": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgresql://postgres@127.0.0.1:55432/wrtest} vitest run"
   },
   "dependencies": {
     "@prisma/client": "^5.21.1",
@@ -24,11 +27,13 @@
     "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.29.2",
     "bcryptjs": "^3.0.3",
+    "fractional-indexing": "^4.0.0",
     "next": "16.2.1",
     "pm2": "^6.0.14",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "yjs": "^13.6.32"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -38,6 +43,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
     "prisma": "^5.21.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

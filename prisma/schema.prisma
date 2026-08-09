@@ -14,6 +14,11 @@ model Team {
   orderIdx  Int      @default(0)
   createdAt DateTime @default(now())
 
+  // 공동 편집 컷오버 시점 — 이 주차부터 SharedDoc 을 쓰고 개인 Report 쓰기를 막는다.
+  // 팀·주차 단위로 판단해야 이미 공동 편집한 주차를 legacy 로 되돌리는 사고를 막을 수 있다.
+  collabFromYear Int?
+  collabFromWeek Int?
+
   users           User[]
   userTeams       UserTeam[]
   parts           Part[]
@@ -21,6 +26,8 @@ model Team {
   categories      Category[]
   summaryData     SummaryData[]
   summaryLocks    SummaryLock[]
+  sharedDocs      SharedDoc[]
+  docActivities   DocActivity[]
 }
 
 model User {
@@ -35,8 +42,9 @@ model User {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  reports   Report[]
-  userTeams UserTeam[]
+  reports       Report[]
+  userTeams     UserTeam[]
+  docActivities DocActivity[]
 
   @@unique([teamId, name])
 }
@@ -107,7 +115,7 @@ model Category {
 }
 
 model Report {
-  id      Int @id @default(autoincrement())
+  id      Int  @id @default(autoincrement())
   userId  Int
   user    User @relation(fields: [userId], references: [id], onDelete: Cascade)
   year    Int
@@ -197,6 +205,82 @@ model ScheduleReport {
   @@unique([year, weekNum])
 }
 
+// ── 실시간 공동 편집 ──────────────────────────────────────────
+//
+// 팀·주차당 공유 문서 1개. ydoc 이 진실원본이고 contents 는 조회용 파생 JSON이다.
+// contents 는 기존 SummaryData.contents 와 형태가 같아 overview/PDF/드라이브 내보내기가
+// 테이블만 바꿔 그대로 동작한다.
+model SharedDoc {
+  id          Int    @id @default(autoincrement())
+  // 프리뷰 배포가 운영 문서를 덮어쓰지 않게 하는 방어선. 기본값을 두지 않아 서버가 반드시 지정한다.
+  environment String
+  teamId      Int
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  year        Int
+  weekNum     Int
+
+  ydoc     Bytes // Y.encodeStateAsUpdate(doc)
+  contents String @default("{}") // 서버가 ydoc 에서 재계산한 EditorState JSON
+
+  docGeneration Int @default(1) // 복원 시에만 증가. 룸 이름에 포함된다
+  writeEpoch    Int @default(1) // 잠금/해제 시 증가. 늦은 저장을 막는 fencing token
+  revision      Int @default(0) // 저장 성공 시 증가. 클라이언트 ACK 기준
+
+  seedId     String // 재시드 중복/소실 방지 — 로컬본과 세대가 다르면 폐기시킨다
+  seededFrom String   @default("") // "carry:2026-31" | "migrate:summary" | "migrate:reports"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  snapshots SharedDocSnapshot[]
+
+  @@unique([environment, teamId, year, weekNum])
+  @@index([year, weekNum])
+}
+
+// 복원용 이력. persist 마다 쌓으면 활발한 편집 중 수십 초 만에 밀려나므로
+// 일정 간격(interval) + 사건(lock/bulk-delete/pre-restore) 기준으로만 남긴다.
+model SharedDocSnapshot {
+  id            Int       @id @default(autoincrement())
+  docId         Int
+  doc           SharedDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  ydoc          Bytes
+  docGeneration Int
+  revision      Int
+  reason        String // "interval" | "lock" | "bulk-delete" | "pre-restore"
+  createdAt     DateTime  @default(now())
+
+  @@index([docId, createdAt])
+}
+
+// 실제 편집 이벤트 기준의 작성 현황.
+// 이월 시드만으로 "작성함"이 되지 않도록 authorId 스캔이 아니라 편집 시각을 기록한다.
+model DocActivity {
+  id          Int    @id @default(autoincrement())
+  environment String
+  teamId      Int
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  year        Int
+  weekNum     Int
+  userId      Int
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastEditedAt DateTime?
+  completedAt  DateTime?
+
+  @@unique([environment, teamId, year, weekNum, userId])
+  @@index([environment, teamId, year, weekNum])
+}
+
+// 저장 멱등성 — DB 커밋 후 ACK 만 유실되면 같은 update 가 재전송된다.
+// Yjs 내용은 중복되지 않지만 revision/스냅샷/활동기록이 다시 쌓이므로 영수증으로 막는다.
+model PersistReceipt {
+  requestId String   @id
+  revision  Int
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model PnlReport {
   id        Int       @id @default(autoincrement())
   year      Int
@@ -224,14 +308,14 @@ model PnlCategory {
   v1Label String @default("") // "v1.41(07.20.)"
   v2Label String @default("") // "v1.43(07.30.)"
 
-  revenueV1      Float @default(0) // 매출금액
-  revenueV2      Float @default(0)
-  costV1         Float @default(0) // 투입원가
-  costV2         Float @default(0)
-  grossProfitV1  Float @default(0) // 매출이익
-  grossProfitV2  Float @default(0)
-  opProfitV1     Float @default(0) // 영업이익
-  opProfitV2     Float @default(0)
+  revenueV1     Float @default(0) // 매출금액
+  revenueV2     Float @default(0)
+  costV1        Float @default(0) // 투입원가
+  costV2        Float @default(0)
+  grossProfitV1 Float @default(0) // 매출이익
+  grossProfitV2 Float @default(0)
+  opProfitV1    Float @default(0) // 영업이익
+  opProfitV2    Float @default(0)
 
   note String @default("") // "※ ..." 각주
 
