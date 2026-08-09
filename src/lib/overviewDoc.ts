@@ -9,7 +9,11 @@
  * - 중분류(⑴)는 별도 열이 아니라 금주/차주 셀 안에 ⑴ → ① → - 로 들어간다
  * - 담당   = 그 분류1에서 실제로 작성한 사람들 (파트 단위 세로 병합)
  */
-import { type ContentBlock, isTableBlock } from './reportBlocks';
+import {
+  type ContentBlock, isTableBlock,
+  isNumericCell, isPlaceholderCell, numericCellColor, formatNumericCell
+} from './reportBlocks';
+import { getNextWeek } from './weekUtils';
 
 export interface DocCategory { id: number; middle: string; current: ContentBlock[]; next: ContentBlock[] }
 export interface DocMajor { id: number; name: string; categories: DocCategory[] }
@@ -44,12 +48,17 @@ export function dotDate(d: Date): string {
   return `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}.`;
 }
 
-/** 증감 표기 색 (원본 문서 관례) */
-function deltaColor(v: string): string | null {
-  const s = v.trim();
-  if (/^[-−]\d/.test(s)) return '#0070c0';
-  if (/^\+\d/.test(s)) return '#ff0000';
-  return null;
+/**
+ * 표 셀의 정렬·색 — 화면(TableBlock)·클립보드(tableToHtml)와 같은 규칙을 쓴다.
+ * 여기만 별도 규칙을 두면 같은 표가 Word/PDF 에서만 다르게 보인다.
+ * 색은 원본 문서 관례를 지키려고 문서용 팔레트(파랑 #0070c0 / 빨강 #ff0000)로 바꿔 쓴다.
+ */
+function cellAlignColor(v: string): { align: 'left' | 'right' | 'center'; color: string | null } {
+  if (!v.trim()) return { align: 'center', color: null };
+  if (isPlaceholderCell(v)) return { align: 'center', color: null };
+  if (!isNumericCell(v)) return { align: 'left', color: null };
+  const c = numericCellColor(v);
+  return { align: 'right', color: c === '#dc2626' ? '#ff0000' : c === '#2563eb' ? '#0070c0' : null };
 }
 
 /**
@@ -72,14 +81,16 @@ const HEAD = `${CELL_MID}background:#f2f2f2;font-weight:bold;`;
 const P = 'margin:0;font-size:9pt;line-height:1.35;';
 
 function renderTable(t: Extract<ContentBlock, { type: 'table' }>): string {
-  const c = `${BORDER}padding:1pt 4pt;font-size:8.5pt;text-align:center;`;
-  const head = t.headers.map(h => `<td style="${c}background:#f2f2f2;font-weight:bold;">${esc(h)}</td>`).join('');
+  const c = `${BORDER}padding:1pt 4pt;font-size:8.5pt;`;
+  const head = t.headers.map(h => `<td style="${c}text-align:center;background:#f2f2f2;font-weight:bold;">${esc(h)}</td>`).join('');
   const body = t.rows
     .map(row => {
       const tds = row
         .map(v => {
-          const col = deltaColor(v);
-          return `<td style="${c}${col ? `color:${col};` : ''}">${esc(v)}</td>`;
+          const { align, color } = cellAlignColor(v);
+          const style = `${c}text-align:${align};${color ? `color:${color};font-weight:bold;` : ''}`;
+          // 숫자는 화면과 같이 천단위 콤마를 넣어 내보낸다
+          return `<td style="${style}">${esc(isNumericCell(v) ? formatNumericCell(v) : v)}</td>`;
         })
         .join('');
       return `<tr>${tds}</tr>`;
@@ -153,7 +164,7 @@ export function buildOverviewHtml(opts: {
   const { teams, year, weekNum, range, nextRange } = opts;
   const onlyFilled = opts.onlyFilled ?? true;
   const includeAuthor = opts.includeAuthor ?? true;
-  const nextWeek = weekNum >= 52 ? 1 : weekNum + 1;
+  const nextWeek = getNextWeek(year, weekNum).weekNum;
 
   const keepCat = (c: DocCategory) => !onlyFilled || c.current.length > 0 || c.next.length > 0;
 

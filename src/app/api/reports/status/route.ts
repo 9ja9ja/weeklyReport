@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib/auth';
+import { getPrevWeek } from '@/lib/weekUtils';
 
 export async function GET(request: Request) {
   const me = await currentUserId();
@@ -25,7 +26,10 @@ export async function GET(request: Request) {
 
     const weeks: { year: number; weekNum: number }[] = [];
     let y = year, w = weekNum;
-    for (let i = 0; i < count; i++) { weeks.push({ year: y, weekNum: w }); w--; if (w < 1) { w = 52; y--; } }
+    for (let i = 0; i < count; i++) {
+      weeks.push({ year: y, weekNum: w });
+      ({ year: y, weekNum: w } = getPrevWeek(y, w));
+    }
 
     // 리포트 + 잠금 상태를 한 번에 조회
     const [reports, locks] = await Promise.all([

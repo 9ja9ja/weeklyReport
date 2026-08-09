@@ -16,11 +16,21 @@ export function getWeekRange(year: number, weekNum: number): { monday: Date; fri
   return { monday, friday };
 }
 
+/** 해당 연도의 마지막 ISO 주차 (52 또는 53) — 12/28 은 항상 그 해 마지막 ISO 주에 속한다 */
+export function getLastWeekOfYear(year: number): number {
+  return getWeekNumber(new Date(year, 11, 28));
+}
+
 /** 직전 주차 — 1주차면 전년도 마지막 주(52/53)로 넘어간다 */
 export function getPrevWeek(year: number, weekNum: number): { year: number; weekNum: number } {
   if (weekNum > 1) return { year, weekNum: weekNum - 1 };
-  // 전년 12/28 은 항상 그 해 마지막 ISO 주에 속한다
-  return { year: year - 1, weekNum: getWeekNumber(new Date(year - 1, 11, 28)) };
+  return { year: year - 1, weekNum: getLastWeekOfYear(year - 1) };
+}
+
+/** 다음 주차 — 그 해 마지막 주차면 다음 해 1주차로 넘어간다 */
+export function getNextWeek(year: number, weekNum: number): { year: number; weekNum: number } {
+  if (weekNum < getLastWeekOfYear(year)) return { year, weekNum: weekNum + 1 };
+  return { year: year + 1, weekNum: 1 };
 }
 
 export function formatDateShort(d: Date): string {
@@ -38,8 +48,9 @@ export function getRecentWeeks(count: number): { year: number; weekNum: number }
 
   for (let i = 0; i < count; i++) {
     weeks.push({ year: y, weekNum: w });
-    w--;
-    if (w < 1) { w = 52; y--; }
+    const prev = getPrevWeek(y, w);
+    y = prev.year;
+    w = prev.weekNum;
   }
 
   return weeks;

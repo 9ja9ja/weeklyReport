@@ -11,6 +11,7 @@ import {
   removeColumn,
   parseClipboardTable,
   isNumericCell,
+  isPlaceholderCell,
   numericCellColor,
   formatNumericCell
 } from '@/lib/reportBlocks';
@@ -32,9 +33,10 @@ const inputBase: React.CSSProperties = {
   fontFamily: 'inherit'
 };
 
-/** 숫자 셀(증감 기호 포함)은 우측 정렬 + 색상, 텍스트 셀은 좌측 정렬 */
+/** 숫자 셀(증감 기호·괄호 음수 포함)은 우측 정렬 + 색상, 값 없음(-)은 가운데, 텍스트는 좌측 */
 function cellStyle(v: string): React.CSSProperties {
   if (!v.trim()) return {};
+  if (isPlaceholderCell(v)) return { textAlign: 'center', color: 'var(--text-muted)' };
   if (!isNumericCell(v)) return { textAlign: 'left' };
   const color = numericCellColor(v);
   return { textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...(color ? { color, fontWeight: 700 } : {}) };

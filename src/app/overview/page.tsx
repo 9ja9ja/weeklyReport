@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber, getWeekRange, getPrevWeek, formatDateShort } from '@/lib/weekUtils';
+import { getWeekNumber, getWeekRange, getPrevWeek, getNextWeek, formatDateShort } from '@/lib/weekUtils';
 import { type ContentBlock, isTableBlock, tableToHtml, tableToText } from '@/lib/reportBlocks';
 import { TableBlockView } from '@/components/TableBlock';
 
@@ -187,7 +187,7 @@ export default function OverviewPage() {
     const html =
       `<table style="border-collapse:collapse;width:100%;border:0.5pt solid #7f7f7f;">` +
       `<tr>` +
-      ['구분', '분류1', '분류2', `${weekNum}주 금주`, `${weekNum + 1}주 차주`]
+      ['구분', '분류1', '분류2', `${weekNum}주 금주`, `${getNextWeek(year, weekNum).weekNum}주 차주`]
         .map(h => `<td style="${tdStyle}background:#f2f2f2;font-weight:bold;text-align:center;">${h}</td>`)
         .join('') +
       `</tr>${rows.join('')}</table>`;
@@ -397,7 +397,7 @@ export default function OverviewPage() {
                 <th style={{ width: '8%' }}>분류</th>
                 <th style={{ width: '10%' }}>중분류</th>
                 <th style={{ width: '30.5%' }}>{weekNum}주차 금주</th>
-                <th style={{ width: '30.5%' }}>{weekNum + 1}주차 차주</th>
+                <th style={{ width: '30.5%' }}>{getNextWeek(year, weekNum).weekNum}주차 차주</th>
               </tr>
             </thead>
             <tbody>

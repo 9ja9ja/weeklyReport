@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useHistory } from '@/lib/useHistory';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber, getPrevWeek } from '@/lib/weekUtils';
+import { getWeekNumber, getPrevWeek, getNextWeek } from '@/lib/weekUtils';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
   isTableBlock, generateId, createSubBlock, createTableBlock,
@@ -196,7 +196,10 @@ export default function SummaryPage() {
     else { const d = await res.json(); alert(d.error || '실패'); }
   };
 
-  const nextWeekLabel = weekNum >= 52 ? `${year + 1}년 1주차` : `${weekNum + 1}주차`;
+  const nextWeekLabel = (() => {
+    const nw = getNextWeek(year, weekNum);
+    return nw.year !== year ? `${nw.year}년 ${nw.weekNum}주차` : `${nw.weekNum}주차`;
+  })();
 
   // ── Copy ──
   const generateCopyData = (mode: 'all' | 'current' | 'next', targetMajorKey: string | null = null, excludeOverride?: Record<number, boolean>, skipEmpty = false) => {

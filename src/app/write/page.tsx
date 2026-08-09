@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useHistory } from '@/lib/useHistory';
-import { getWeekNumber } from '@/lib/weekUtils';
+import { getWeekNumber, getPrevWeek } from '@/lib/weekUtils';
 import { useUser } from '@/lib/UserContext';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
@@ -124,8 +124,7 @@ function WriteContent() {
       if (Array.isArray(lockData)) lockData.forEach((l: { teamId: number; isLocked: boolean }) => { lockMap[l.teamId] = l.isLocked; });
       setLockByTeam(lockMap);
 
-      const prevW = weekNum > 1 ? weekNum - 1 : 52;
-      const prevY = weekNum > 1 ? year : year - 1;
+      const { year: prevY, weekNum: prevW } = getPrevWeek(year, weekNum);
 
       const prevRes = await fetch(`/api/reports?userId=${userId}&year=${prevY}&weekNum=${prevW}`);
       const prevData = await prevRes.json();

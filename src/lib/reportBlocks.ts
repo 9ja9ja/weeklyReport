@@ -145,6 +145,14 @@ function parseTsv(text: string | null | undefined): string[][] | null {
 
 const LEADING_SIGN_RE = /^([△▲▽▼+\-−±])\s*/;
 const TRAILING_UNIT_RE = /[^\d.,]+$/;
+/**
+ * 회계 관례의 괄호 음수 — (1,234) / (1,234)원 / (12.5)% 처럼 짧은 단위가 붙어도 인식.
+ * 단위는 공백 없는 4자 이내로 제한한다. 넓게 잡으면 "(2024)년 목표" 같은 일반 문장이
+ * 음수로 오인돼 우측 정렬 + 콤마 삽입으로 원문이 손상된다.
+ */
+const PAREN_NUMBER_RE = /^\(\s*([\d,]+(?:\.\d+)?)\s*\)\s*([^\d.,\s]{0,4})$/;
+/** 값이 없음을 뜻하는 자리표시자 — 숫자 열에서 자릿수를 맞춰야 하므로 가운데 정렬한다 */
+const PLACEHOLDER_RE = /^[-−–—]{1,2}$/;
 
 /** 앞의 기호/화살표(△▲▽▼±)와 뒤의 단위(%, 건, MM 등)를 떼어낸 숫자 핵심부만 반환 */
 function numericCore(raw: string): string {
@@ -152,8 +160,21 @@ function numericCore(raw: string): string {
   return noLead.replace(TRAILING_UNIT_RE, '');
 }
 
-/** 셀이 숫자 표기(증감 기호·단위 포함)인지 판정 — 아니면 일반 텍스트로 취급 */
+/** 괄호 음수 표기면 { core, unit } 반환, 아니면 null */
+function parenNumber(raw: string): { core: string; unit: string } | null {
+  const m = raw.trim().match(PAREN_NUMBER_RE);
+  return m ? { core: m[1], unit: m[2] ?? '' } : null;
+}
+
+/** 값 없음 자리표시자(-, --, — 등)인지 */
+export function isPlaceholderCell(raw: string): boolean {
+  return PLACEHOLDER_RE.test(raw.trim());
+}
+
+/** 셀이 숫자 표기(증감 기호·단위·괄호 음수 포함)인지 판정 — 아니면 일반 텍스트로 취급 */
 export function isNumericCell(raw: string): boolean {
+  if (isPlaceholderCell(raw)) return false; // 자리표시자는 숫자가 아니라 별도 정렬 규칙을 따른다
+  if (parenNumber(raw)) return true;
   const core = numericCore(raw);
   return core !== '' && /^[\d,]+(\.\d+)?$/.test(core);
 }
@@ -164,6 +185,8 @@ export function isNumericCell(raw: string): boolean {
  */
 export function numericCellColor(raw: string): string | null {
   if (!isNumericCell(raw)) return null;
+  // 괄호 표기는 회계 관례상 음수 → 감소와 같은 파랑
+  if (parenNumber(raw)) return '#2563eb';
   const m = raw.trim().match(LEADING_SIGN_RE);
   const sign = m?.[1];
   if (sign === '△' || sign === '▲' || sign === '+') return '#dc2626';
@@ -174,19 +197,33 @@ export function numericCellColor(raw: string): string | null {
 /** 숫자 셀을 천단위 콤마로 재포맷 (기호·단위는 그대로 유지). 숫자가 아니면 원문 반환 */
 export function formatNumericCell(raw: string): string {
   const s = raw.trim();
+
+  // 괄호 음수는 괄호를 유지한 채 안쪽 숫자만 천단위 콤마를 넣는다 — (1234)원 → (1,234)원
+  const paren = parenNumber(s);
+  if (paren) {
+    const formatted = withThousands(paren.core);
+    return formatted === null ? raw : `(${formatted})${paren.unit}`;
+  }
+
   const leadMatch = s.match(LEADING_SIGN_RE);
   const prefix = leadMatch ? leadMatch[0] : '';
   const rest = s.slice(prefix.length);
   const suffixMatch = rest.match(TRAILING_UNIT_RE);
   const suffix = suffixMatch ? suffixMatch[0] : '';
   const core = suffix ? rest.slice(0, rest.length - suffix.length) : rest;
-  if (core === '' || !/^[\d,]+(\.\d+)?$/.test(core)) return raw;
 
-  const num = Number(core.replace(/,/g, ''));
-  if (!Number.isFinite(num)) return raw;
-  const decimals = core.includes('.') ? core.split('.')[1].length : 0;
-  const formatted = num.toLocaleString('ko-KR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  const formatted = withThousands(core);
+  if (formatted === null) return raw;
   return prefix + formatted + suffix;
+}
+
+/** 숫자 핵심부에 천단위 콤마를 넣는다 (소수 자릿수 보존). 숫자 형태가 아니면 null */
+function withThousands(core: string): string | null {
+  if (core === '' || !/^[\d,]+(\.\d+)?$/.test(core)) return null;
+  const num = Number(core.replace(/,/g, ''));
+  if (!Number.isFinite(num)) return null;
+  const decimals = core.includes('.') ? core.split('.')[1].length : 0;
+  return num.toLocaleString('ko-KR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 export function tableToText(t: TableBlock, indent = '     '): string {
@@ -206,6 +243,8 @@ export function tableToHtml(t: TableBlock): string {
       const tds = row
         .map(v => {
           if (!v.trim()) return `<td style="${cell}text-align:left;">${escapeHtml(v)}</td>`;
+          // 값 없음(-)은 숫자 열의 자릿수를 흐트러뜨리지 않도록 가운데 정렬
+          if (isPlaceholderCell(v)) return `<td style="${cell}text-align:center;">${escapeHtml(v)}</td>`;
           if (!isNumericCell(v)) return `<td style="${cell}text-align:left;">${escapeHtml(v)}</td>`;
           const color = numericCellColor(v);
           const style = `${cell}text-align:right;${color ? `color:${color};font-weight:bold;` : ''}`;

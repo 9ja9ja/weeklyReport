@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
 import { buildOverviewHtml, type DocTeam } from '@/lib/overviewDoc';
-import { getWeekRange } from '@/lib/weekUtils';
+import { getWeekRange, getNextWeek } from '@/lib/weekUtils';
 import type { ContentBlock } from '@/lib/reportBlocks';
 
 type CateData = { current: ContentBlock[]; next: ContentBlock[] };
@@ -108,7 +108,8 @@ export async function POST(request: Request) {
     }
 
     const range = getWeekRange(year, weekNum);
-    const nextRange = getWeekRange(weekNum >= 52 ? year + 1 : year, weekNum >= 52 ? 1 : weekNum + 1);
+    const nw = getNextWeek(year, weekNum);
+    const nextRange = getWeekRange(nw.year, nw.weekNum);
     const html = buildOverviewHtml({ teams: docTeams, year, weekNum, range, nextRange, onlyFilled, includeAuthor });
 
     const teamSuffix = teamId ? `_${teams[0]?.name ?? ''}` : '';
