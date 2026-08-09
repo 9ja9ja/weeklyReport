@@ -7,7 +7,7 @@ import { useUser } from '@/lib/UserContext';
 import DbUsage from './DbUsage';
 
 export default function Navigation() {
-  const { userId, userName, teamName, teams, activeTeamId, switchTeam, role, clearUser, isMasterOrAbove, hasMultipleTeams, canViewOverview, isExecutive } = useUser();
+  const { userId, userName, teamName, teams, activeTeamId, switchTeam, role, clearUser, hasMultipleTeams, canViewOverview, isExecutive } = useUser();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -33,7 +33,8 @@ export default function Navigation() {
         {canViewOverview && <Link href="/brief" onClick={closeMenu}>요약본</Link>}
         {canViewOverview && <Link href="/schedule" onClick={closeMenu}>일정보고</Link>}
         {canViewOverview && <Link href="/pnl" onClick={closeMenu}>손익보고</Link>}
-        {isMasterOrAbove && <Link href="/settings" onClick={closeMenu} style={{ color: 'var(--primary)' }}>설정</Link>}
+        {/* 일반 팀원도 대분류를 직접 관리하므로 설정 진입이 필요하다 (마스터 전용 섹션은 화면 안에서 가려진다) */}
+        {userId && !isExecutive && <Link href="/settings" onClick={closeMenu} style={{ color: 'var(--primary)' }}>설정</Link>}
         {userId && (
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <DbUsage />

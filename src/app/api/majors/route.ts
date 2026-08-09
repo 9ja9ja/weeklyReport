@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireTeamMaster, requirePartMaster, currentUserId, unauthorized } from '@/lib/auth';
+// 대분류는 팀원 누구나 관리할 수 있다 — 항목 변경 때마다 마스터에게 요청해야 하던 불편 해소.
+// 다른 팀 분류를 건드리는 사고는 막아야 하므로 "같은 팀 소속(겸직 포함)"까지만 연다.
+import { requireTeamEditor, requirePartEditor, currentUserId, unauthorized } from '@/lib/auth';
 
 /** GET /api/majors?teamId=1 또는 ?partId=3 */
 export async function GET(request: Request) {
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
 
     const part = await prisma.part.findUnique({ where: { id: partId }, select: { teamId: true } });
     if (!part) return NextResponse.json({ error: '파트를 찾을 수 없습니다.' }, { status: 404 });
-    if (!await requireTeamMaster(me, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamEditor(me, part.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     const last = await prisma.majorCategory.findFirst({ where: { partId }, orderBy: { orderIdx: 'desc' } });
     const result = await prisma.majorCategory.create({
@@ -59,7 +61,14 @@ export async function PUT(request: Request) {
     if (!me) return unauthorized();
     const { majorIds, partId } = await request.json();
     if (!Array.isArray(majorIds)) return NextResponse.json({ error: 'Invalid' }, { status: 400 });
-    if (!await requirePartMaster(me, partId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requirePartEditor(me, partId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+
+    // 권한은 partId 기준으로만 확인했으므로, 넘어온 id 가 정말 그 파트 소속인지 검증한다.
+    // (검증이 없으면 남의 팀 대분류 id 를 섞어 보내 순서를 뒤흔들 수 있다)
+    const owned = await prisma.majorCategory.count({ where: { id: { in: majorIds }, partId } });
+    if (owned !== majorIds.length) {
+      return NextResponse.json({ error: '해당 파트의 대분류가 아닙니다.' }, { status: 400 });
+    }
 
     await prisma.$transaction(
       majorIds.map((id: number, idx: number) => prisma.majorCategory.update({ where: { id }, data: { orderIdx: idx } }))
@@ -79,7 +88,7 @@ export async function DELETE(request: Request) {
 
     const major = await prisma.majorCategory.findUnique({ where: { id } });
     if (!major) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(me, major.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamEditor(me, major.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     // 하위 활성 중분류 존재 여부 (같은 파트 안에서만 판단)
     const activeCatCount = await prisma.category.count({
@@ -112,9 +121,23 @@ export async function PATCH(request: Request) {
     const { id, newName, isActive } = await request.json();
     const old = await prisma.majorCategory.findUnique({ where: { id } });
     if (!old) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(me, old.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    if (!await requireTeamEditor(me, old.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
     if (typeof isActive === 'boolean') {
+      // '사용안함' 은 삭제와 파급이 같다 — overview/write 가 isActive:true 만 조회하므로
+      // 하위 활성 중분류가 있으면 그 내용이 팀 전원 화면에서 한 번에 사라진다.
+      // 권한이 팀원 전체로 열렸으므로 DELETE 와 동일한 가드를 둔다.
+      if (!isActive) {
+        const activeCatCount = await prisma.category.count({
+          where: { major: old.name, partId: old.partId, isActive: true }
+        });
+        if (activeCatCount > 0) {
+          return NextResponse.json(
+            { error: `활성 중분류가 ${activeCatCount}개 존재합니다. 먼저 중분류를 삭제/비활성화 해주세요.` },
+            { status: 400 }
+          );
+        }
+      }
       await prisma.majorCategory.update({ where: { id }, data: { isActive } });
       return NextResponse.json({ success: true });
     }

@@ -11,7 +11,7 @@ interface MajorInfo { id: number; name: string; orderIdx: number; teamId: number
 interface CategoryInfo { id: number; major: string; middle: string; orderIdx: number; teamId: number; partId: number; isActive: boolean; }
 
 export default function SettingsPage() {
-  const { userId, teamId: myTeamId, isMasterOrAbove, isSuperAdmin, isHydrating } = useUser();
+  const { userId, teamId: myTeamId, isMasterOrAbove, isSuperAdmin, isExecutive, isHydrating } = useUser();
   const router = useRouter();
 
   // superAdmin은 팀을 선택할 수 있음, teamMaster는 본인팀 고정
@@ -85,9 +85,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (isHydrating) return; // 세션 복원 전에는 판단하지 않는다
-    if (!isMasterOrAbove) { router.push('/'); return; }
+    // 대분류는 팀원 누구나 관리하므로 일반 사용자도 이 화면에 들어온다.
+    // 마스터 전용 섹션(팀·팀원·파트·중분류)은 아래에서 개별로 가린다. 임원은 작성 자체를 안 하므로 제외.
+    if (!userId || isExecutive) { router.push('/'); return; }
     fetchTeams();
-  }, [isHydrating, isMasterOrAbove, fetchTeams, router]);
+  }, [isHydrating, userId, isExecutive, fetchTeams, router]);
 
   useEffect(() => {
     if (activeTeamId) fetchTeamData(activeTeamId);
@@ -195,7 +197,8 @@ export default function SettingsPage() {
   };
   const toggleMajorActive = async (id: number, isActive: boolean) => {
     if (!confirm(isActive ? '대분류를 다시 활성화하시겠습니까?' : '대분류를 사용안함 처리하시겠습니까?')) return;
-    await post('/api/majors', { id, isActive }, 'PATCH');
+    const res = await post('/api/majors', { id, isActive }, 'PATCH');
+    if (!res.ok) { alert((await res.json()).error || '실패'); return; }
     reload();
   };
   const moveMajor = async (idx: number, dir: -1 | 1) => {
@@ -205,7 +208,8 @@ export default function SettingsPage() {
     const a = scoped.findIndex(m => m.id === active[idx].id);
     const b = scoped.findIndex(m => m.id === active[idx + dir].id);
     [scoped[a], scoped[b]] = [scoped[b], scoped[a]];
-    await post('/api/majors', { majorIds: scoped.map(m => m.id), partId: selectedPartId }, 'PUT');
+    const res = await post('/api/majors', { majorIds: scoped.map(m => m.id), partId: selectedPartId }, 'PUT');
+    if (!res.ok) { alert((await res.json()).error || '순서 변경 실패'); return; }
     reload();
   };
 
@@ -223,8 +227,12 @@ export default function SettingsPage() {
     if (res.ok) { if (d.message) alert(d.message); reload(); } else alert(d.error || '삭제 실패');
   };
   const toggleCategoryActive = async (catId: number, isActive: boolean) => {
-    if (!confirm(isActive ? '중분류를 다시 활성화하시겠습니까?' : '중분류를 사용안함 처리하시겠습니까?')) return;
-    await post('/api/categories', { id: catId, isActive }, 'PATCH');
+    // 비활성화하면 overview·PDF·작성화면에서 그 중분류 내용이 즉시 사라진다 — 되돌릴 수 있음을 알린다.
+    if (!confirm(isActive
+      ? '중분류를 다시 활성화하시겠습니까?'
+      : '중분류를 사용안함 처리하시겠습니까?\n\n작성된 내용이 전체 취합본·작성 화면에서 보이지 않게 됩니다. (복원 가능)')) return;
+    const res = await post('/api/categories', { id: catId, isActive }, 'PATCH');
+    if (!res.ok) { alert((await res.json()).error || '실패'); return; }
     reload();
   };
   const moveCategory = async (major: string, idx: number, dir: -1 | 1) => {
@@ -234,7 +242,8 @@ export default function SettingsPage() {
     const a = scoped.findIndex(c => c.id === active[idx].id);
     const b = scoped.findIndex(c => c.id === active[idx + dir].id);
     [scoped[a], scoped[b]] = [scoped[b], scoped[a]];
-    await post('/api/categories', { categoryIds: scoped.map(c => c.id), partId: selectedPartId }, 'PUT');
+    const res = await post('/api/categories', { categoryIds: scoped.map(c => c.id), partId: selectedPartId }, 'PUT');
+    if (!res.ok) { alert((await res.json()).error || '순서 변경 실패'); return; }
     reload();
   };
 
@@ -292,8 +301,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* 팀원 관리 */}
-      {activeTeamId && (
+      {/* 팀원 관리 (마스터 이상) */}
+      {activeTeamId && isMasterOrAbove && (
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
             팀원 관리 {sectionSuffix()}
@@ -347,14 +356,16 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* 파트 관리 */}
+      {/* 파트 — 마스터는 관리, 일반 팀원은 대분류를 볼 파트를 고르는 선택기로만 쓴다 */}
       {activeTeamId && (
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
-            파트 관리 {sectionSuffix()}
+            {isMasterOrAbove ? '파트 관리' : '파트 선택'} {sectionSuffix()}
           </h3>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
-            파트는 대분류 위 단계입니다. 문서의 &quot;분류1&quot; 컬럼에 해당합니다. 파트를 선택하면 아래 대분류·중분류가 해당 파트 기준으로 표시됩니다.
+            {isMasterOrAbove
+              ? '파트는 대분류 위 단계입니다. 문서의 "분류1" 컬럼에 해당합니다. 파트를 선택하면 아래 대분류·중분류가 해당 파트 기준으로 표시됩니다.'
+              : '파트를 선택하면 아래 대분류·중분류가 해당 파트 기준으로 표시됩니다. 파트 추가·수정은 관리자에게 요청해주세요.'}
           </p>
           {parts.filter(p => p.isActive).map((p, idx) => (
             <div key={p.id} className="settings-row"
@@ -371,13 +382,15 @@ export default function SettingsPage() {
                   대분류 {majors.filter(m => m.partId === p.id && m.isActive).length} · 중분류 {categories.filter(c => c.partId === p.id && c.isActive).length}
                 </span>
               </button>
-              <button onClick={() => movePart(idx, -1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
-              <button onClick={() => movePart(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === parts.filter(x => x.isActive).length - 1}>▼</button>
-              <button onClick={() => togglePartActive(p.id, false)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#f59e0b', borderColor: '#f59e0b' }}>사용안함</button>
-              <button onClick={() => deletePart(p.id, p.name)} className="icon-btn del" style={{ fontSize: '0.8rem' }}>✕</button>
+              {isMasterOrAbove && <>
+                <button onClick={() => movePart(idx, -1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === 0}>▲</button>
+                <button onClick={() => movePart(idx, 1)} className="btn" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} disabled={idx === parts.filter(x => x.isActive).length - 1}>▼</button>
+                <button onClick={() => togglePartActive(p.id, false)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', color: '#f59e0b', borderColor: '#f59e0b' }}>사용안함</button>
+                <button onClick={() => deletePart(p.id, p.name)} className="icon-btn del" style={{ fontSize: '0.8rem' }}>✕</button>
+              </>}
             </div>
           ))}
-          {parts.filter(p => !p.isActive).length > 0 && (
+          {isMasterOrAbove && parts.filter(p => !p.isActive).length > 0 && (
             <div style={{ marginTop: '0.8rem', padding: '0.6rem 0.8rem', background: 'var(--surface-dim)', borderRadius: '6px' }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>사용안함 처리된 파트</div>
               {parts.filter(p => !p.isActive).map(p => (
@@ -388,10 +401,12 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-            <input type="text" value={newPartName} onChange={e => setNewPartName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPart()} placeholder="새 파트 이름 (예: 내부, 핀테크)" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
-            <button onClick={addPart} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>파트 추가</button>
-          </div>
+          {isMasterOrAbove && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
+              <input type="text" value={newPartName} onChange={e => setNewPartName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPart()} placeholder="새 파트 이름 (예: 내부, 핀테크)" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
+              <button onClick={addPart} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>파트 추가</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -401,6 +416,11 @@ export default function SettingsPage() {
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
             대분류 관리 {sectionSuffix(` / 파트: ${selectedPart?.name ?? ''}`)}
           </h3>
+          {!isMasterOrAbove && (
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
+              대분류·중분류는 팀원 누구나 추가·수정·삭제할 수 있습니다. 하위 중분류가 남아 있는 대분류는 먼저 중분류를 정리해야 합니다.
+            </p>
+          )}
           {partMajors.filter(m => m.isActive).map((m, idx) => (
             <div key={m.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ flex: 1, fontWeight: 700, color: 'var(--primary)' }}>{m.name}</span>
@@ -428,7 +448,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* 중분류 관리 */}
+      {/* 중분류 관리 — 대분류와 함께 팀원 전체에 개방 */}
       {activeTeamId && selectedPartId && (
         <div className="glass-panel" style={{ padding: '2rem' }}>
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>

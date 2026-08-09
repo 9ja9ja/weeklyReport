@@ -13,6 +13,8 @@ export async function POST(request: Request) {
       include: { team: true }
     });
     if (!user) return NextResponse.json({ error: '사용자를 찾을 수 없습니다.' }, { status: 404 });
+    // 비활성 계정은 비밀번호가 맞아도 로그인시키지 않는다 (퇴사·휴직 처리)
+    if (!user.isActive) return NextResponse.json({ error: '비활성 처리된 계정입니다. 관리자에게 문의해주세요.' }, { status: 403 });
 
     const buildSession = async () => ({
       id: user.id,
