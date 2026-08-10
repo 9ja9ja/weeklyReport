@@ -23,5 +23,9 @@ tag = "v1"
 new_sqlite_classes = ["WeeklyRoom"]
 
 [vars]
-# 배포 시 실제 앱 주소로 바꾼다. 로컬은 .dev.vars 에서 덮어쓴다.
-NEXT_APP_URL = "http://127.0.0.1:3000"
+# Worker 가 문서를 읽고 저장하려고 호출하는 Next 앱 주소.
+# 반드시 "배포 보호(Vercel Authentication)가 걸리지 않은" 공개 운영 alias 여야 한다 —
+# weekly-report-*.vercel.app 계열은 SSO 보호가 걸려 Worker 가 401 만 받는다(확인함).
+# 사내 도메인을 쓰면 Vercel alias 가 바뀌어도 이 값을 고칠 필요가 없다.
+# 로컬 개발은 .dev.vars 에서 덮어쓴다.
+NEXT_APP_URL = "https://service-weekly.fingerservice.co.kr"
