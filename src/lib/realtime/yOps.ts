@@ -382,7 +382,8 @@ export function removeColumn(
  */
 export function mergeCells(
   doc: Y.Doc, catId: string | number, side: Side, blockId: string,
-  r1: number, c1: number, r2: number, c2: number, origin?: unknown
+  r1: number, c1: number, r2: number, c2: number, origin?: unknown,
+  expect?: { rows: number; cols: number }
 ): void {
   const sm = readSideMap(doc, catId, side);
   if (!sm) return;
@@ -395,6 +396,9 @@ export function mergeCells(
 
     const rids = sortedEntries(rows).map(([id]) => id);
     const cids = sortedEntries(cols).map(([id]) => id);
+    // 범위를 고른 뒤 [셀 병합]을 누를 때까지 시간이 걸린다. 그 사이 행·열이 바뀌었으면
+    // 화면에서 고른 사각형과 다른 곳을 덮게 되므로 하지 않는다.
+    if (expect && (rids.length !== expect.rows || cids.length !== expect.cols)) return;
     const top = Math.min(r1, r2), bottom = Math.max(r1, r2);
     const left = Math.min(c1, c2), right = Math.max(c1, c2);
     if (top < 0 || left < 0 || bottom >= rids.length || right >= cids.length) return;
@@ -631,24 +635,46 @@ export function insertRowAt(
   else insertRow(doc, catId, side, blockId, 'above', anchor, origin);
 }
 
+/**
+ * 행 삭제.
+ *
+ * `expectRows` 는 화면이 그 인덱스를 계산할 때 본 행 수다. 지금 문서와 다르면
+ * 그 사이 다른 사람이 행을 넣거나 뺀 것이므로 **아무것도 지우지 않는다** —
+ * 인덱스를 그대로 믿으면 엉뚱한 행이 사라지고, 되돌릴 방법이 없다.
+ */
 export function removeRowAt(
-  doc: Y.Doc, catId: string | number, side: Side, blockId: string, r: number, origin?: unknown
-): void {
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, r: number,
+  origin?: unknown, expectRows?: number
+): boolean {
   const b = blockOf(doc, catId, side, blockId);
-  if (!b) return;
-  const rid = rowIds(b)[r];
-  if (!rid) return;
+  if (!b) return false;
+  const ids = rowIds(b);
+  if (expectRows !== undefined && ids.length !== expectRows) return false;
+  const rid = ids[r];
+  if (!rid) return false;
   removeRow(doc, catId, side, blockId, rid, origin);
+  return true;
 }
 
+/** 열 삭제 — 행과 같은 이유로 화면이 본 열 수를 함께 확인한다 */
 export function removeColumnAt(
-  doc: Y.Doc, catId: string | number, side: Side, blockId: string, c: number, origin?: unknown
-): void {
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, c: number,
+  origin?: unknown, expectCols?: number
+): boolean {
   const b = blockOf(doc, catId, side, blockId);
-  if (!b) return;
-  const cid = colIds(b)[c];
-  if (!cid) return;
+  if (!b) return false;
+  const ids = colIds(b);
+  if (expectCols !== undefined && ids.length !== expectCols) return false;
+  const cid = ids[c];
+  if (!cid) return false;
   removeColumn(doc, catId, side, blockId, cid, origin);
+  return true;
+}
+
+/** 한 칸(current/next)의 블록 id 를 순서대로 — 문서 기준이라 스냅샷보다 정확하다 */
+export function blockIds(doc: Y.Doc, catId: string | number, side: Side): string[] {
+  const sm = readSideMap(doc, catId, side);
+  return sm ? sortedEntries(sm).map(([id]) => id) : [];
 }
 
 export function rowIds(block: Y.Map<unknown>): string[] {

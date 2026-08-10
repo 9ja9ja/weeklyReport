@@ -4,6 +4,8 @@ import { parseRoomName, roomNameOf } from '@/lib/realtime/token';
 import { persistUpdate, currentEnvironment, type PersistOp } from '@/lib/realtime/persist';
 import { persistBriefUpdate } from '@/lib/realtime/briefPersist';
 import { isBriefCollabWeek } from '@/lib/realtime/briefCutover';
+import { isCollabWeek } from '@/lib/collabWeek';
+import { prisma } from '@/lib/db';
 
 /**
  * 룸 → DB 저장. **Worker 전용**(서버간 서명).
@@ -89,6 +91,21 @@ export async function POST(request: Request) {
         return NextResponse.json(briefResult, { status: briefResult.reason === 'busy' ? 503 : 409 });
       }
       return NextResponse.json(briefResult, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
+    // 팀이 공동 편집을 끄면 그 주차는 즉시 레거시로 돌아간다.
+    // 살아 있는 룸이 계속 저장하면 미러(SummaryData)를 덮고, 동시에 레거시로 전환된
+    // 팀원의 개인 보고 저장이 같은 행을 개인 보고 기준으로 다시 만든다 —
+    // 두 경로가 번갈아 덮으면서 그 주 팀 작업물이 빈 내용으로 대체된다. 룸 쪽을 끊는다.
+    const team = await prisma.team.findUnique({
+      where: { id: key.teamId },
+      select: {
+        collabFromYear: true, collabFromWeek: true,
+        collabUntilYear: true, collabUntilWeek: true
+      }
+    });
+    if (!team || !isCollabWeek(team, key.year, key.weekNum)) {
+      return NextResponse.json({ ok: false, reason: 'cutover-off' }, { status: 409 });
     }
 
     const result = await persistUpdate({

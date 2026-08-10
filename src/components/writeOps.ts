@@ -202,9 +202,11 @@ export function sharedWriteOps(
       ops.moveBullet(doc, catId, side, blockId, bulletId, prev, next, origin);
     }),
     copyCurrentToNext: guard((catId: number, blocks: ContentBlock[]) => {
+      // 두 사람이 동시에 누르면 삭제는 병합되지만 추가는 양쪽 다 살아남아 내용이 두 벌이 된다.
+      // 문서에서 직접 현재 목록을 읽어 지우고, 같은 트랜잭션 안에서 다시 채운다.
       doc.transact(() => {
-        // 기존 차주 내용을 비우고 금주 내용을 복사한다
-        for (const b of blocksOf(catId, 'next')) ops.removeBlock(doc, catId, 'next', b.id, origin);
+        const existing = ops.blockIds(doc, catId, 'next');
+        for (const id of existing) ops.removeBlock(doc, catId, 'next', id, origin);
         for (const b of blocks) {
           if (isTableBlock(b)) {
             const id = ops.addTableBlock(doc, catId, 'next', author, b.headers.length, b.rows.length, origin);
@@ -213,6 +215,13 @@ export function sharedWriteOps(
             b.rows.forEach((row, r) => row.forEach((v, c) => {
               if (v) ops.setCellAt(doc, catId, 'next', id, r, c, v, origin);
             }));
+            // 병합도 함께 복사한다 — 빠뜨리면 개인 작성 모드와 결과가 달라진다
+            (b.merges ?? []).forEach(m =>
+              ops.mergeCells(
+                doc, catId, 'next', id,
+                m.r, m.c, m.r + m.rowSpan - 1, m.c + m.colSpan - 1, origin
+              )
+            );
           } else {
             const id = ops.addSubBlock(doc, catId, 'next', author, origin);
             ops.setSubTextValue(doc, catId, 'next', id, b.subText, origin);
@@ -224,21 +233,35 @@ export function sharedWriteOps(
         }
       }, origin);
     }),
-    tableOps: (catId, side, blockId): TableOps => ({
+    tableOps: (catId, side, blockId): TableOps => {
+      /** 화면이 지금 그리고 있는 표 크기 — 파괴적 연산은 이 값이 문서와 같을 때만 수행한다 */
+      const shape = () => {
+        const b = blocksOf(catId, side).find(x => x.id === blockId);
+        return b && isTableBlock(b) ? { rows: b.rows.length, cols: b.headers.length } : undefined;
+      };
+      const stale = () => alert('다른 팀원이 방금 이 표의 행·열을 바꿨습니다. 화면을 확인하고 다시 시도해주세요.');
+      return {
       setCaption: v => { if (!readOnly) ops.setCaptionText(doc, catId, side, blockId, v, origin); },
       setHeader: (c, v) => { if (!readOnly) ops.setHeaderAt(doc, catId, side, blockId, c, v, origin); },
       setCell: (r, c, v) => { if (!readOnly) ops.setCellAt(doc, catId, side, blockId, r, c, v, origin); },
       addRow: at => { if (!readOnly) ops.insertRowAt(doc, catId, side, blockId, at, origin); },
-      removeRow: r => { if (!readOnly) ops.removeRowAt(doc, catId, side, blockId, r, origin); },
+      removeRow: r => {
+        if (readOnly) return;
+        if (!ops.removeRowAt(doc, catId, side, blockId, r, origin, shape()?.rows)) stale();
+      },
       addColumn: () => { if (!readOnly) ops.insertColumn(doc, catId, side, blockId, 'end', origin); },
-      removeColumn: c => { if (!readOnly) ops.removeColumnAt(doc, catId, side, blockId, c, origin); },
-      merge: (r1, c1, r2, c2) => { if (!readOnly) ops.mergeCells(doc, catId, side, blockId, r1, c1, r2, c2, origin); },
+      removeColumn: c => {
+        if (readOnly) return;
+        if (!ops.removeColumnAt(doc, catId, side, blockId, c, origin, shape()?.cols)) stale();
+      },
+      merge: (r1, c1, r2, c2) => { if (!readOnly) ops.mergeCells(doc, catId, side, blockId, r1, c1, r2, c2, origin, shape()); },
       unmerge: (r, c) => { if (!readOnly) ops.unmergeCells(doc, catId, side, blockId, r, c, origin); },
       replaceAll: (headers, rows) => {
         if (readOnly) return;
         ops.replaceTableContent(doc, catId, side, blockId, headers, rows, origin);
       }
-    }),
+      };
+    },
     subText: (catId, side, blockId) => {
       const b = blockMap(doc, catId, side, blockId);
       const t = b?.get(BLOCK.subText);

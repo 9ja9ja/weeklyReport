@@ -213,7 +213,10 @@ function WriteContent() {
       .map(k => parseInt(k, 10))
       .filter(catId => {
         const tid = teamOfCategory.get(catId);
-        if (tid == null) return true;
+        // 어느 팀인지 모르는 항목(비활성 처리된 중분류의 잔여분 등)은 보내지 않는다.
+        // 보내면 서버가 그 팀을 공동 편집으로 판정해 요청 전체를 409 로 막아,
+        // 같이 보낸 개인 작성 팀까지 저장이 실패한다.
+        if (tid == null) return false;
         // 공동 편집 팀은 문서가 알아서 저장한다. 여기 섞으면 서버가 요청 전체를 거부해
         // 같이 보낸 개인 작성 팀까지 저장이 막힌다.
         if (teamIsCollab(tid)) return false;
@@ -233,9 +236,15 @@ function WriteContent() {
   })();
 
   const saveReport = async () => {
+    const items = buildSaveItems();
+
     // 공동 편집 탭은 이미 자동 저장되고 있다. 버튼은 디바운스를 기다리지 않고 지금 반영시킨다.
+    // 다만 겸직자는 다른 탭에 개인 작성 팀이 있을 수 있다 — 그쪽은 여기서 저장하지 않으면
+    // 아무 데도 저장되지 않으므로, 남아 있으면 기존 확인 모달로 이어간다.
     if (collab) {
       setSaving(true);
+      let flushed = false;
+      let detail = '';
       try {
         const res = await fetch('/api/realtime/flush', {
           method: 'POST',
@@ -243,13 +252,23 @@ function WriteContent() {
           body: JSON.stringify({ teamId: activeTeamId, year, weekNum })
         });
         const d = await res.json().catch(() => null);
-        alert(res.ok ? '저장되었습니다.' : (d?.error ?? '저장에 실패했습니다.'));
-      } catch { alert('저장에 실패했습니다.'); }
+        flushed = res.ok && d?.ok !== false;
+        if (!flushed) detail = d?.error ?? '실시간 서버가 저장을 마치지 못했습니다.';
+      } catch { detail = '저장에 실패했습니다.'; }
       finally { setSaving(false); }
+
+      if (!flushed) {
+        // 자동 저장은 계속 재시도되므로 문서를 잃은 것은 아니다. 다만 "저장됨"이라고
+        // 알리면 안 된다 — 사용자가 확인된 줄 알고 창을 닫는다.
+        alert(`${detail}\n\n편집 내용은 계속 자동 저장을 시도합니다. 상단 표시를 확인해주세요.`);
+      } else if (items.length === 0) {
+        alert('저장되었습니다.');
+      }
+      // 개인 작성 팀 항목이 남아 있으면 이어서 저장한다
+      if (items.length > 0) setShowConfirm(true);
       return;
     }
 
-    const items = buildSaveItems();
     if (items.length === 0) {
       alert(isLocked ? '이 주차는 잠겨있어 저장할 수 없습니다.' : '저장할 내용이 없습니다.');
       return;
@@ -284,8 +303,16 @@ function WriteContent() {
   //
   // 개인 작성과 공동 편집이 같은 인터페이스를 쓴다. 블록은 **id 로** 가리킨다 —
   // 인덱스로 가리키면 공동 편집에서 남이 위에 항목을 추가한 순간 엉뚱한 블록을 고친다.
-  /** 지금 편집할 수 없는 상태인가 — 잠금, 또는 공동 편집에서 권한·동기화 미완 */
-  const readOnly = collab ? (rt.readOnly || !rt.synced) : lockedByApi;
+  /**
+   * 지금 편집할 수 없는 상태인가.
+   *
+   * 실시간 여부가 정해지기 전(mode==='loading')에도 막는다. 그 사이 열어준 편집기는
+   * 개인 이월본을 보여주는데, 공동 편집으로 판정되는 순간 화면이 문서 기준으로 갈아끼워져
+   * 그때까지 친 내용이 저장 경로 없이 사라진다.
+   */
+  const readOnly = rt.mode === 'loading'
+    ? true
+    : collab ? (rt.readOnly || !rt.synced) : lockedByApi;
 
   const isLocked = collab ? rt.locked : lockedByApi;
 
@@ -457,8 +484,14 @@ function WriteContent() {
 
   // 파트 > 대분류 > 중분류 계층 구성
   // 대분류 이름은 파트가 다르면 중복될 수 있으므로 (partId, major)로 구분한다.
-  /** + 소분류 / + 표 버튼 묶음 */
-  const AddBlockBar = ({ catId, type }: { catId: number; type: 'current'|'next' }) => (
+  /**
+   * + 소분류 / + 표 버튼 묶음.
+   *
+   * 컴포넌트로 만들지 않고 함수로 둔다. 렌더 함수 안에서 컴포넌트를 정의하면 매 렌더마다
+   * 새 타입이 되어 React 가 서브트리를 리마운트하는데, 공동 편집에서는 원격 입력마다
+   * 리렌더되므로 mousedown 과 mouseup 사이에 버튼이 교체돼 클릭이 삼켜진다.
+   */
+  const addBlockBar = (catId: number, type: 'current'|'next') => (
     <div style={{ display: 'flex', gap: '0.4rem', marginTop: '1.5rem' }}>
       <button onClick={() => ops.addSub(catId, type)} className="btn" style={{ fontSize: '0.8rem', background: 'var(--btn-bg)', color: 'var(--foreground)', flex: 1 }}>+ 소분류 추가</button>
       <button onClick={() => ops.addTable(catId, type)} className="btn" style={{ fontSize: '0.8rem', background: 'var(--btn-bg)', color: 'var(--foreground)', width: '112px' }}>+ 표 추가</button>
@@ -551,6 +584,20 @@ function WriteContent() {
         </div>
       )}
 
+      {/* 실시간 여부를 판정하는 동안에는 편집을 막고 그 사실을 알린다.
+          아무 표시 없이 편집기를 열어두면 저장 경로 없는 입력이 쌓인다. */}
+      {rt.mode === 'loading' && (
+        <div className="brief-live-bar" style={{ marginBottom: '1rem' }}>
+          <span className="brief-live-dot" />
+          <span className="brief-live-label">작성 방식을 확인하는 중입니다...</span>
+        </div>
+      )}
+      {rt.mode === 'legacy' && rt.legacyReason && (
+        <div style={{ background: 'var(--danger-alpha)', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.8rem 1.2rem', marginBottom: '1rem', color: '#dc2626', fontSize: '0.9rem' }}>
+          {rt.legacyReason}
+        </div>
+      )}
+
       {collab && (
         <div className="brief-live-bar" style={{ marginBottom: '1rem' }}>
           <span className={`brief-live-dot${rt.connected && rt.synced ? ' on' : ''}`} />
@@ -574,21 +621,29 @@ function WriteContent() {
         <div>
           <h2 style={{ marginBottom: '0.5rem' }}>{userName}님의 주간보고</h2>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <label>연도: <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value, 10))} className="input-field" style={{ width: '80px', marginLeft: '0.5rem', padding: '0.3rem' }} /></label>
-            <label>주차: <input type="number" value={weekNum} onChange={e => setWeekNum(parseInt(e.target.value, 10))} className="input-field" style={{ width: '80px', marginLeft: '0.5rem', padding: '0.3rem' }} /></label>
+            {/* 타이핑 중간값(예: 53 을 치다가 5)으로 엉뚱한 주차 문서가 만들어지지 않게
+                입력을 마친 뒤(blur/Enter)에만 반영한다 */}
+            <label>연도: <input type="number" defaultValue={year} key={`y${year}`}
+              onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 2000 && v <= 2100) setYear(v); else e.target.value = String(year); }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              className="input-field" style={{ width: '80px', marginLeft: '0.5rem', padding: '0.3rem' }} /></label>
+            <label>주차: <input type="number" defaultValue={weekNum} key={`w${weekNum}`}
+              onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v <= 53) setWeekNum(v); else e.target.value = String(weekNum); }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              className="input-field" style={{ width: '80px', marginLeft: '0.5rem', padding: '0.3rem' }} /></label>
           </div>
         </div>
         <div className="write-actions" style={{ display: 'flex', gap: '1rem' }}>
           {/* 공동 편집에서는 화면 상태를 통째로 되돌리면 남이 방금 쓴 것까지 지운다.
               Y.UndoManager 가 내 변경만 되돌린다. */}
           <button
-            onClick={() => (collab ? rt.undo?.undo() : undo())}
-            disabled={collab ? !rt.undo : !canUndo}
+            onClick={() => { if (readOnly) return; if (collab) rt.undo?.undo(); else undo(); }}
+            disabled={readOnly || (collab ? !rt.undo : !canUndo)}
             className="btn" style={{ fontSize: '0.9rem' }}
           >↶ 실행취소</button>
           <button
-            onClick={() => (collab ? rt.undo?.redo() : redo())}
-            disabled={collab ? !rt.undo : !canRedo}
+            onClick={() => { if (readOnly) return; if (collab) rt.undo?.redo(); else redo(); }}
+            disabled={readOnly || (collab ? !rt.undo : !canRedo)}
             className="btn" style={{ fontSize: '0.9rem' }}
           >↷ 다시실행</button>
           <button className="btn btn-primary" onClick={saveReport} disabled={saving} style={{ padding: '0.8rem 2rem', fontSize: '1.1rem' }}>
@@ -681,7 +736,7 @@ function WriteContent() {
                       <div className="inner-box" style={{ borderTopColor: 'var(--primary)' }}>
                         <h4 style={{ color: 'var(--primary)', marginBottom: '1.2rem', fontWeight: 800, fontSize: '0.95rem' }}>[이번 주] 금주 진행사항</h4>
                         {renderBlocks(cat.id, 'current', blocksOf(cat.id, 'current'))}
-                        {!readOnly && <AddBlockBar catId={cat.id} type="current" />}
+                        {!readOnly && addBlockBar(cat.id, 'current')}
                       </div>
                       <div className="inner-box" style={{ borderTopColor: 'var(--primary)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
@@ -691,7 +746,7 @@ function WriteContent() {
                           )}
                         </div>
                         {renderBlocks(cat.id, 'next', blocksOf(cat.id, 'next'))}
-                        {!readOnly && <AddBlockBar catId={cat.id} type="next" />}
+                        {!readOnly && addBlockBar(cat.id, 'next')}
                       </div>
                     </div>
                   </div>

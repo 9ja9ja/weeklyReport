@@ -58,20 +58,35 @@ function CellInput({
   style?: React.CSSProperties;
 } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'style'>) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  // 한글 조합 중에는 바깥에서 온 값으로 되쓰지 않는다 — 조합이 깨져 글자가 튄다.
+  const composing = useRef(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? value;
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
+  }, [shown]);
 
   return (
     <textarea
       ref={ref}
       rows={1}
-      value={value}
-      onChange={e => onChange(e.target.value)}
+      value={shown}
+      onCompositionStart={() => { composing.current = true; }}
+      onCompositionEnd={e => {
+        composing.current = false;
+        setDraft(null);
+        onChange((e.target as HTMLTextAreaElement).value);
+      }}
+      onChange={e => {
+        const v = e.target.value;
+        if (composing.current) { setDraft(v); return; }
+        setDraft(null);
+        onChange(v);
+      }}
       style={{ ...inputBase, ...style }}
       {...rest}
     />
@@ -171,7 +186,16 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
     return true;
   };
 
+  /**
+   * 표 붙여넣기.
+   *
+   * 셀 안에 여러 줄 텍스트를 붙여넣는 것까지 "표"로 오인해 통째로 갈아엎던 문제가 있었다.
+   * 셀·제목 입력칸 안에서의 붙여넣기는 그 칸의 일이므로 건드리지 않고,
+   * 표 바깥 영역에 붙여넣었을 때만 표 교체로 본다.
+   */
   const handlePaste = (e: React.ClipboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
     const html = e.clipboardData.getData('text/html');
     const text = e.clipboardData.getData('text/plain');
     if (applyClipboard(html, text)) e.preventDefault();

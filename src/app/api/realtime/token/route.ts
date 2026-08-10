@@ -4,7 +4,7 @@ import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib
 import { currentEnvironment, isCollabWeek } from '@/lib/realtime/persist';
 import { signToken, roomName } from '@/lib/realtime/token';
 import { tokenSecret, TOKEN_TTL_SEC, isRealtimeConfigured } from '@/lib/realtime/secrets';
-import { ensureWeekDocument } from '@/lib/realtime/seed';
+import { ensureWeekDocument, ensureCategoryContainers } from '@/lib/realtime/seed';
 
 /**
  * 실시간 룸 접속 토큰 발급. **사용자 세션용 엔드포인트**다(서버간 시크릿 아님).
@@ -81,6 +81,13 @@ async function issue(teamId: number, year: number, weekNum: number, allowSeed: b
   const seeded = allowSeed
     ? await ensureWeekDocument(environment, teamId, year, weekNum)
     : { created: false, reason: undefined as string | undefined };
+
+  // 시드 이후에 생긴 중분류(주중 추가)는 문서에 자리가 없다. 그대로 두면 두 사람이
+  // 같은 중분류에 동시에 항목을 넣을 때 컨테이너를 각자 만들게 되고, Y.Map 키가 LWW 라
+  // 한쪽 블록이 통째로 사라진다. 컨테이너 생성은 반드시 서버 한 곳에서 한다.
+  if (allowSeed && !seeded.created) {
+    await ensureCategoryContainers(environment, teamId, year, weekNum);
+  }
 
   const doc = await prisma.sharedDoc.findUnique({
     where: { environment_teamId_year_weekNum: { environment, teamId, year, weekNum } },

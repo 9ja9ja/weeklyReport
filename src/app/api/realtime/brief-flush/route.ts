@@ -42,6 +42,14 @@ export async function POST(request: Request) {
       { status: 502 }
     );
   }
+  // 룸은 저장 실패도 HTTP 200 + { ok:false } 로 돌려준다. 상태코드만 보면 거짓 성공이 된다.
+  const saved = (res.body as { ok?: boolean } | undefined)?.ok;
+  if (saved === false) {
+    return NextResponse.json(
+      { ok: false, error: '실시간 서버가 저장을 마치지 못했습니다. 잠시 후 다시 시도해주세요.' },
+      { status: 409 }
+    );
+  }
 
   // 룸이 저장한 뒤의 revision 을 그대로 돌려준다 — "저장됨" 표시의 기준값이다
   const after = await prisma.briefDoc.findUnique({

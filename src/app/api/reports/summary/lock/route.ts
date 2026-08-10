@@ -68,7 +68,10 @@ export async function POST(request: Request) {
 
     const team = await prisma.team.findUnique({
       where: { id: teamId },
-      select: { collabFromYear: true, collabFromWeek: true }
+      select: {
+        collabFromYear: true, collabFromWeek: true,
+        collabUntilYear: true, collabUntilWeek: true
+      }
     });
     const collab = !!team && isCollabWeek(team, year, weekNum);
 
