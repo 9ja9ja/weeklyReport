@@ -841,6 +841,37 @@ select.input-field option {
     color: #1a1a1a !important;
   }
 }
+
+/* ===== 테마 색이 본문에 박혀 글자가 안 보이는 경우 구제 =====
+   워드·한글에서 복사하면 그쪽 편집기의 테마 글자색(흰색 또는 검정)이 인라인으로 따라온다.
+   내용이 아니라 남의 화면 설정이므로, 보는 사람의 테마와 충돌하면 무시한다.
+   (붙여넣기 단계에서도 걸러내지만, 이미 저장된 문서는 여기서 살린다.
+    배경색이 함께 지정된 칸은 그 배경에 맞춘 글자색이므로 건드리지 않는다.) */
+@media (prefers-color-scheme: dark) {
+  .brief-editor-content .tiptap [style*="color: #000000"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color:#000000"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: #000"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color:#000"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: rgb(0, 0, 0)"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: rgb(0,0,0)"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: black"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: windowtext"]:not([style*="background"]) {
+    color: var(--foreground) !important;
+  }
+}
+@media (prefers-color-scheme: light) {
+  .brief-editor-content .tiptap [style*="color: #ffffff"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color:#ffffff"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: #FFFFFF"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: #fff"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color:#fff"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: #FFF"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: rgb(255, 255, 255)"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: rgb(255,255,255)"]:not([style*="background"]),
+  .brief-editor-content .tiptap [style*="color: white"]:not([style*="background"]) {
+    color: #222 !important;
+  }
+}
 .brief-editor-content .tiptap table .selectedCell {
   background: var(--primary-alpha-light);
 }

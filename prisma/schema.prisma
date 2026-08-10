@@ -14,10 +14,16 @@ model Team {
   orderIdx  Int      @default(0)
   createdAt DateTime @default(now())
 
-  // 공동 편집 컷오버 시점 — 이 주차부터 SharedDoc 을 쓰고 개인 Report 쓰기를 막는다.
+  // 공동 편집 컷오버 구간 — 이 주차부터 SharedDoc 을 쓰고 개인 Report 쓰기를 막는다.
   // 팀·주차 단위로 판단해야 이미 공동 편집한 주차를 legacy 로 되돌리는 사고를 막을 수 있다.
-  collabFromYear Int?
-  collabFromWeek Int?
+  //
+  // 끌 때 collabFrom 을 지우지 않고 collabUntil 을 채우는 이유:
+  // 이미 함께 작성한 주차까지 legacy 로 되돌아가면 그 주차 저장이 개인 Report 기준으로
+  // 재생성돼 공동 문서 내용을 덮어쓴다. 지난 주차는 공동 편집인 채로 남겨둬야 한다.
+  collabFromYear  Int?
+  collabFromWeek  Int?
+  collabUntilYear Int?
+  collabUntilWeek Int?
 
   users           User[]
   userTeams       UserTeam[]

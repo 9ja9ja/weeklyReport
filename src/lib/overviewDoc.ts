@@ -10,7 +10,7 @@
  * - 담당   = 그 분류1에서 실제로 작성한 사람들 (파트 단위 세로 병합)
  */
 import {
-  type ContentBlock, isTableBlock,
+  type ContentBlock, isTableBlock, isCovered, spanAt,
   isNumericCell, isPlaceholderCell, numericCellColor, formatNumericCell
 } from './reportBlocks';
 import { getNextWeek } from './weekUtils';
@@ -82,15 +82,22 @@ const P = 'margin:0;font-size:9pt;line-height:1.35;';
 
 function renderTable(t: Extract<ContentBlock, { type: 'table' }>): string {
   const c = `${BORDER}padding:1pt 4pt;font-size:8.5pt;`;
-  const head = t.headers.map(h => `<td style="${c}text-align:center;background:#f2f2f2;font-weight:bold;">${esc(h)}</td>`).join('');
+  const head = t.headers
+    .map(h => `<td style="${c}text-align:center;background:#f2f2f2;font-weight:bold;">${esc(h).replace(/\n/g, '<br>')}</td>`)
+    .join('');
   const body = t.rows
-    .map(row => {
+    .map((row, r) => {
       const tds = row
-        .map(v => {
+        .map((v, ci) => {
+          if (isCovered(t, r, ci)) return '';   // 병합으로 덮인 칸
+          const { rowSpan, colSpan } = spanAt(t, r, ci);
+          const attrs =
+            `${colSpan > 1 ? ` colspan="${colSpan}"` : ''}${rowSpan > 1 ? ` rowspan="${rowSpan}"` : ''}`;
           const { align, color } = cellAlignColor(v);
-          const style = `${c}text-align:${align};${color ? `color:${color};font-weight:bold;` : ''}`;
-          // 숫자는 화면과 같이 천단위 콤마를 넣어 내보낸다
-          return `<td style="${style}">${esc(isNumericCell(v) ? formatNumericCell(v) : v)}</td>`;
+          const style = `${c}text-align:${align};vertical-align:middle;${color ? `color:${color};font-weight:bold;` : ''}`;
+          // 숫자는 화면과 같이 천단위 콤마를 넣어 내보낸다. 셀 안 줄바꿈은 <br> 로 살린다.
+          const text = esc(isNumericCell(v) ? formatNumericCell(v) : v).replace(/\n/g, '<br>');
+          return `<td style="${style}"${attrs}>${text}</td>`;
         })
         .join('');
       return `<tr>${tds}</tr>`;

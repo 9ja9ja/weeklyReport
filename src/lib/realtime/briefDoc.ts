@@ -54,7 +54,9 @@ export function buildBriefDoc(html: string, title: string, seedId: string): Y.Do
     meta.set(BRIEF_META_TITLE, t);
 
     if (html && html.trim()) {
-      const json = generateJSON(html, extensions);
+      // preserveWhitespace 없이 파싱하면 HTML 파서가 선행 공백을 접어버린다.
+      // 사람들이 공백으로 만들어 둔 기존 들여쓰기가 저장 한 번에 사라지는 원인이었다.
+      const json = generateJSON(html, extensions, { preserveWhitespace: 'full' });
       prosemirrorJSONToYXmlFragment(schema, json, doc.getXmlFragment(BRIEF_FRAGMENT));
     }
   });

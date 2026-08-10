@@ -90,6 +90,46 @@ describe('요약본 HTML 왕복', () => {
   });
 });
 
+describe('들여쓰기 보존', () => {
+  // 저장·잠금 후 다시 열면 계단식 목차가 통째로 평평해지던 문제.
+  // HTML 을 다시 파싱하는 순간 선행 공백은 접히고 margin-left 는 스키마에 없어 버려졌다.
+  it('들여쓰기 단계가 왕복에서 살아남는다', () => {
+    const got = roundtrip('<p data-indent="2">2단 들여쓴 줄</p>');
+    expect(got).toContain('data-indent="2"');
+    expect(got).toContain('2단 들여쓴 줄');
+  });
+
+  it('두 번 왕복해도 단계가 유지된다', () => {
+    const once = roundtrip('<p data-indent="3">세 단계</p>');
+    expect(roundtrip(once)).toBe(once);
+  });
+
+  it('붙여넣은 margin-left 를 단계로 환산한다', () => {
+    // 워드·한글에서 붙여넣으면 px/pt 로 들어온다
+    expect(roundtrip('<p style="margin-left:24px">한 단계</p>')).toContain('data-indent="1"');
+    expect(roundtrip('<p style="margin-left:48px">두 단계</p>')).toContain('data-indent="2"');
+    expect(roundtrip('<p style="margin-left:36pt">두 단계</p>')).toContain('data-indent="2"');
+    expect(roundtrip('<p style="text-indent:1.5em">한 단계</p>')).toContain('data-indent="1"');
+  });
+
+  it('들여쓰기가 없으면 속성을 붙이지 않는다', () => {
+    const got = roundtrip('<p>평범한 줄</p>');
+    expect(got).not.toContain('data-indent');
+    expect(got).not.toContain('margin-left');
+  });
+
+  it('공백으로 만든 기존 들여쓰기도 지워지지 않는다', () => {
+    // 이미 저장돼 있는 내용은 공백으로 들여쓴 것들이다. 파서가 접으면 그대로 사라진다.
+    const got = roundtrip('<p>    공백으로 들여쓴 줄</p>');
+    expect(got).toContain('공백으로 들여쓴 줄');
+    expect(got).toMatch(/<p>\s{2,}공백으로/);
+  });
+
+  it('제목에도 들여쓰기가 붙는다', () => {
+    expect(roundtrip('<h2 data-indent="1">들여쓴 제목</h2>')).toContain('data-indent="1"');
+  });
+});
+
 describe('요약본 메타', () => {
   it('제목과 seedId 를 보관한다', () => {
     const doc = buildBriefDoc('<p>본문</p>', '2026년 32주차 요약', 'seed-abc');

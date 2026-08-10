@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
-import { getPrevWeek } from '@/lib/weekUtils';
+import { getPrevWeek, getWeekNumber } from '@/lib/weekUtils';
 
 export async function GET(request: Request) {
   try {
@@ -68,6 +68,10 @@ export async function GET(request: Request) {
         division: t.division,
         orderIdx: t.orderIdx,
         createdAt: t.createdAt,
+        collabFromYear: t.collabFromYear,
+        collabFromWeek: t.collabFromWeek,
+        collabUntilYear: t.collabUntilYear,
+        collabUntilWeek: t.collabUntilWeek,
         _count: { users: t._count.userTeams, parts: t._count.parts }
       }))
     );
@@ -113,16 +117,56 @@ export async function PATCH(request: Request) {
   try {
     const me = await currentUserId();
     if (!me) return unauthorized();
-    const { id, newName, division } = await request.json();
+    const { id, newName, division, collab } = await request.json();
     if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자 권한이 필요합니다.' }, { status: 403 });
 
-    const data: { name?: string; division?: string } = {};
+    const data: {
+      name?: string; division?: string;
+      collabFromYear?: number | null; collabFromWeek?: number | null;
+      collabUntilYear?: number | null; collabUntilWeek?: number | null;
+    } = {};
     if (newName?.trim()) data.name = newName.trim();
     if (typeof division === 'string') data.division = division.trim();
+
+    // 실시간 공동 편집 켜기/끄기 — 적용 시점은 서버가 정한다.
+    // 클라이언트가 주차를 지정하게 두면 지난 주차를 임의로 공동 편집으로 바꿔
+    // 확정된 취합본이 재생성 대상이 될 수 있다.
+    if (collab === true || collab === false) {
+      const now = new Date();
+      const cur = { year: now.getFullYear(), weekNum: getWeekNumber(now) };
+      const team = await prisma.team.findUnique({
+        where: { id },
+        select: { collabFromYear: true, collabFromWeek: true }
+      });
+      if (!team) return NextResponse.json({ error: '팀을 찾을 수 없습니다.' }, { status: 404 });
+
+      if (collab) {
+        // 이번 주차부터 적용. 이미 시작 주차가 있으면 그대로 두고 종료만 해제한다 —
+        // 시작점을 뒤로 밀면 그 사이 함께 작성한 주차가 기존 방식으로 되돌아간다.
+        data.collabFromYear = team.collabFromYear ?? cur.year;
+        data.collabFromWeek = team.collabFromWeek ?? cur.weekNum;
+        data.collabUntilYear = null;
+        data.collabUntilWeek = null;
+      } else {
+        // 지난 주차까지는 공동 편집으로 남긴다. 이번 주차부터 기존 방식.
+        const prev = getPrevWeek(cur.year, cur.weekNum);
+        data.collabUntilYear = prev.year;
+        data.collabUntilWeek = prev.weekNum;
+      }
+    }
+
     if (Object.keys(data).length === 0) return NextResponse.json({ error: '변경할 내용이 없습니다.' }, { status: 400 });
 
-    await prisma.team.update({ where: { id }, data });
-    return NextResponse.json({ success: true });
+    const updated = await prisma.team.update({
+      where: { id },
+      data,
+      select: {
+        id: true, name: true, division: true,
+        collabFromYear: true, collabFromWeek: true,
+        collabUntilYear: true, collabUntilWeek: true
+      }
+    });
+    return NextResponse.json({ success: true, team: updated });
   } catch (error) {
     if ((error as { code?: string }).code === 'P2002') return NextResponse.json({ error: '이미 존재하는 팀 이름입니다.' }, { status: 400 });
     return NextResponse.json({ error: '수정 실패' }, { status: 500 });

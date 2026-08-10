@@ -16,6 +16,12 @@ export type SubBlock = {
   bullets: Bullet[];
 };
 
+/**
+ * 병합된 셀 한 덩어리. (r, c) 가 좌상단 기준칸이고 그 오른쪽·아래가 덮인다.
+ * 덮인 칸의 값은 지우지 않고 그대로 둔다 — 병합을 풀면 원래 내용이 돌아와야 한다.
+ */
+export type CellMerge = { r: number; c: number; rowSpan: number; colSpan: number };
+
 /** 문서의 통계표 (문의 대응 추이표, 운영 실적표, 진행 경과표 등) */
 export type TableBlock = {
   id: string;
@@ -25,6 +31,8 @@ export type TableBlock = {
   headers: string[];
   rows: string[][];
   authorText?: string;
+  /** 없으면 병합 없음. 기존 데이터에는 이 필드가 없다 */
+  merges?: CellMerge[];
 };
 
 export type ContentBlock = SubBlock | TableBlock;
@@ -63,17 +71,36 @@ export function setHeader(t: TableBlock, c: number, v: string): TableBlock {
   return { ...t, headers: t.headers.map((h, i) => (i === c ? v : h)) };
 }
 
-export function addRow(t: TableBlock): TableBlock {
-  return { ...t, rows: [...t.rows, t.headers.map(() => '')] };
+/**
+ * 행 삽입. `at` 을 주면 그 위치에 끼워 넣는다.
+ *
+ * 매출 정산표처럼 최신 건이 위로 쌓이는 표는 맨 아래에만 추가할 수 있으면
+ * 매번 값을 아래에서 위로 옮겨 적어야 한다.
+ */
+export function addRow(t: TableBlock, at?: number): TableBlock {
+  const blank = t.headers.map(() => '');
+  const idx = at === undefined ? t.rows.length : Math.max(0, Math.min(at, t.rows.length));
+  const rows = [...t.rows.slice(0, idx), blank, ...t.rows.slice(idx)];
+  return { ...t, rows, merges: shiftMerges(t.merges, 'row', 'insert', idx) };
 }
 
 export function removeRow(t: TableBlock, r: number): TableBlock {
   if (t.rows.length <= 1) return t;
-  return { ...t, rows: t.rows.filter((_, i) => i !== r) };
+  return {
+    ...t,
+    rows: t.rows.filter((_, i) => i !== r),
+    merges: shiftMerges(t.merges, 'row', 'remove', r)
+  };
 }
 
-export function addColumn(t: TableBlock): TableBlock {
-  return { ...t, headers: [...t.headers, ''], rows: t.rows.map(row => [...row, '']) };
+export function addColumn(t: TableBlock, at?: number): TableBlock {
+  const idx = at === undefined ? t.headers.length : Math.max(0, Math.min(at, t.headers.length));
+  return {
+    ...t,
+    headers: [...t.headers.slice(0, idx), '', ...t.headers.slice(idx)],
+    rows: t.rows.map(row => [...row.slice(0, idx), '', ...row.slice(idx)]),
+    merges: shiftMerges(t.merges, 'col', 'insert', idx)
+  };
 }
 
 export function removeColumn(t: TableBlock, c: number): TableBlock {
@@ -81,8 +108,119 @@ export function removeColumn(t: TableBlock, c: number): TableBlock {
   return {
     ...t,
     headers: t.headers.filter((_, i) => i !== c),
-    rows: t.rows.map(row => row.filter((_, i) => i !== c))
+    rows: t.rows.map(row => row.filter((_, i) => i !== c)),
+    merges: shiftMerges(t.merges, 'col', 'remove', c)
   };
+}
+
+// ── 셀 병합 ──────────────────────────────────────────────────
+
+/**
+ * 행·열이 늘거나 줄 때 병합 좌표를 따라 옮긴다.
+ * 이걸 빠뜨리면 행 하나만 추가해도 병합이 엉뚱한 칸을 덮어 표가 깨진다.
+ */
+function shiftMerges(
+  merges: CellMerge[] | undefined,
+  axis: 'row' | 'col',
+  op: 'insert' | 'remove',
+  at: number
+): CellMerge[] | undefined {
+  if (!merges?.length) return merges;
+  const pos = (m: CellMerge) => (axis === 'row' ? m.r : m.c);
+  const span = (m: CellMerge) => (axis === 'row' ? m.rowSpan : m.colSpan);
+  const withPos = (m: CellMerge, p: number, s: number): CellMerge =>
+    axis === 'row' ? { ...m, r: p, rowSpan: s } : { ...m, c: p, colSpan: s };
+
+  const out: CellMerge[] = [];
+  for (const m of merges) {
+    const p = pos(m);
+    const s = span(m);
+    if (op === 'insert') {
+      if (at <= p) out.push(withPos(m, p + 1, s));            // 병합 위에 삽입 → 통째로 밀린다
+      else if (at < p + s) out.push(withPos(m, p, s + 1));    // 병합 안에 삽입 → 범위가 넓어진다
+      else out.push(m);
+    } else {
+      if (at < p) out.push(withPos(m, p - 1, s));
+      else if (at < p + s) {
+        // 병합 안의 줄이 사라졌다. 1칸만 남으면 병합이 아니다.
+        if (s - 1 >= 2) out.push(withPos(m, p, s - 1));
+      } else out.push(m);
+    }
+  }
+  return normalizeMerges(out);
+}
+
+/** 1칸짜리(=병합 아님)와 표 밖으로 나간 것을 걸러낸다 */
+function normalizeMerges(merges: CellMerge[]): CellMerge[] | undefined {
+  const kept = merges.filter(m => m.rowSpan >= 1 && m.colSpan >= 1 && m.rowSpan * m.colSpan > 1);
+  return kept.length ? kept : undefined;
+}
+
+/** (r,c) 를 덮고 있는 병합 (기준칸 자신 포함). 없으면 null */
+export function mergeAt(t: TableBlock, r: number, c: number): CellMerge | null {
+  for (const m of t.merges ?? []) {
+    if (r >= m.r && r < m.r + m.rowSpan && c >= m.c && c < m.c + m.colSpan) return m;
+  }
+  return null;
+}
+
+/** (r,c) 가 다른 칸에 덮여 화면에 그려지지 않는 칸인지 */
+export function isCovered(t: TableBlock, r: number, c: number): boolean {
+  const m = mergeAt(t, r, c);
+  return !!m && !(m.r === r && m.c === c);
+}
+
+/** 화면에 그릴 때 쓸 span. 병합이 없으면 1x1 */
+export function spanAt(t: TableBlock, r: number, c: number): { rowSpan: number; colSpan: number } {
+  const m = mergeAt(t, r, c);
+  return m && m.r === r && m.c === c
+    ? { rowSpan: m.rowSpan, colSpan: m.colSpan }
+    : { rowSpan: 1, colSpan: 1 };
+}
+
+/**
+ * 사각 범위를 하나로 합친다.
+ *
+ * 범위가 기존 병합과 겹치면 그 병합까지 포함하도록 넓힌다 — 반쪽만 겹친 채로 두면
+ * 같은 칸을 두 병합이 덮어 렌더가 어긋난다.
+ * 덮이는 칸의 값은 지우지 않는다. 병합을 풀면 그대로 돌아온다.
+ */
+export function mergeCells(t: TableBlock, r1: number, c1: number, r2: number, c2: number): TableBlock {
+  let top = Math.min(r1, r2), bottom = Math.max(r1, r2);
+  let left = Math.min(c1, c2), right = Math.max(c1, c2);
+  if (top < 0 || left < 0 || bottom >= t.rows.length || right >= t.headers.length) return t;
+
+  // 겹치는 기존 병합을 모두 삼킬 때까지 범위를 넓힌다
+  const others = t.merges ?? [];
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const m of others) {
+      const overlap = m.r <= bottom && m.r + m.rowSpan - 1 >= top && m.c <= right && m.c + m.colSpan - 1 >= left;
+      if (!overlap) continue;
+      const nt = Math.min(top, m.r), nb = Math.max(bottom, m.r + m.rowSpan - 1);
+      const nl = Math.min(left, m.c), nr = Math.max(right, m.c + m.colSpan - 1);
+      if (nt !== top || nb !== bottom || nl !== left || nr !== right) {
+        top = nt; bottom = nb; left = nl; right = nr;
+        changed = true;
+      }
+    }
+  }
+
+  const rowSpan = bottom - top + 1;
+  const colSpan = right - left + 1;
+  if (rowSpan * colSpan <= 1) return t;
+
+  const rest = others.filter(m =>
+    !(m.r >= top && m.r + m.rowSpan - 1 <= bottom && m.c >= left && m.c + m.colSpan - 1 <= right)
+  );
+  return { ...t, merges: normalizeMerges([...rest, { r: top, c: left, rowSpan, colSpan }]) };
+}
+
+/** (r,c) 를 덮는 병합을 푼다 */
+export function unmergeCells(t: TableBlock, r: number, c: number): TableBlock {
+  const m = mergeAt(t, r, c);
+  if (!m) return t;
+  return { ...t, merges: normalizeMerges((t.merges ?? []).filter(x => x !== m)) };
 }
 
 // ── 붙여넣기 파싱 ─────────────────────────────────────────────
@@ -229,26 +367,47 @@ function withThousands(core: string): string | null {
 export function tableToText(t: TableBlock, indent = '     '): string {
   const lines: string[] = [];
   if (t.caption.trim()) lines.push(`${indent}${t.caption.trim()}`);
-  lines.push(`${indent}${t.headers.join('\t')}`);
-  t.rows.forEach(row => lines.push(`${indent}${row.join('\t')}`));
+  lines.push(`${indent}${t.headers.map(oneLine).join('\t')}`);
+  t.rows.forEach((row, r) =>
+    // 덮인 칸은 빈칸으로 — 값을 반복하면 붙여넣기 했을 때 같은 값이 여러 번 들어간다
+    lines.push(`${indent}${row.map((v, c) => (isCovered(t, r, c) ? '' : oneLine(v))).join('\t')}`)
+  );
   return lines.join('\n') + '\n';
 }
 
+/** 탭 구분 텍스트에서는 셀 안 줄바꿈이 행 구분과 섞이므로 공백으로 눕힌다 */
+function oneLine(v: string): string {
+  return v.replace(/\s*\n\s*/g, ' ');
+}
+
+/** 셀 안 줄바꿈을 HTML 로 — 표에서 줄을 나눠 쓰는 경우가 많다 */
+function cellHtml(v: string): string {
+  return escapeHtml(v).replace(/\n/g, '<br>');
+}
+
+/** 병합된 칸의 colspan/rowspan 속성 문자열 (병합 없으면 빈 문자열) */
+function spanAttrs(t: TableBlock, r: number, c: number): string {
+  const { rowSpan, colSpan } = spanAt(t, r, c);
+  return `${colSpan > 1 ? ` colspan="${colSpan}"` : ''}${rowSpan > 1 ? ` rowspan="${rowSpan}"` : ''}`;
+}
+
 export function tableToHtml(t: TableBlock): string {
-  const cell = 'border:0.5pt solid #7f7f7f;padding:1pt 4pt;font-size:9pt;';
+  const cell = 'border:0.5pt solid #7f7f7f;padding:1pt 4pt;font-size:9pt;vertical-align:middle;';
   const th = `${cell}background:#f2f2f2;font-weight:bold;text-align:center;`;
-  const head = t.headers.map(h => `<td style="${th}">${escapeHtml(h)}</td>`).join('');
+  const head = t.headers.map(h => `<td style="${th}">${cellHtml(h)}</td>`).join('');
   const body = t.rows
-    .map(row => {
+    .map((row, r) => {
       const tds = row
-        .map(v => {
-          if (!v.trim()) return `<td style="${cell}text-align:left;">${escapeHtml(v)}</td>`;
+        .map((v, c) => {
+          if (isCovered(t, r, c)) return '';   // 다른 칸이 덮고 있다
+          const attrs = spanAttrs(t, r, c);
+          if (!v.trim()) return `<td style="${cell}text-align:left;"${attrs}>${cellHtml(v)}</td>`;
           // 값 없음(-)은 숫자 열의 자릿수를 흐트러뜨리지 않도록 가운데 정렬
-          if (isPlaceholderCell(v)) return `<td style="${cell}text-align:center;">${escapeHtml(v)}</td>`;
-          if (!isNumericCell(v)) return `<td style="${cell}text-align:left;">${escapeHtml(v)}</td>`;
+          if (isPlaceholderCell(v)) return `<td style="${cell}text-align:center;"${attrs}>${cellHtml(v)}</td>`;
+          if (!isNumericCell(v)) return `<td style="${cell}text-align:left;"${attrs}>${cellHtml(v)}</td>`;
           const color = numericCellColor(v);
           const style = `${cell}text-align:right;${color ? `color:${color};font-weight:bold;` : ''}`;
-          return `<td style="${style}">${escapeHtml(formatNumericCell(v))}</td>`;
+          return `<td style="${style}"${attrs}>${cellHtml(formatNumericCell(v))}</td>`;
         })
         .join('');
       return `<tr>${tds}</tr>`;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import {
   TableBlock,
   setCell,
@@ -9,6 +9,11 @@ import {
   removeRow,
   addColumn,
   removeColumn,
+  mergeCells,
+  unmergeCells,
+  mergeAt,
+  isCovered,
+  spanAt,
   parseClipboardTable,
   isNumericCell,
   isPlaceholderCell,
@@ -19,7 +24,8 @@ import {
 const cellBase: React.CSSProperties = {
   border: '1px solid var(--border)',
   padding: 0,
-  minWidth: '60px'
+  minWidth: '60px',
+  verticalAlign: 'middle'
 };
 
 const inputBase: React.CSSProperties = {
@@ -30,8 +36,47 @@ const inputBase: React.CSSProperties = {
   fontSize: '0.82rem',
   textAlign: 'center',
   color: 'inherit',
-  fontFamily: 'inherit'
+  fontFamily: 'inherit',
+  // 셀 안에서 줄을 나눠 쓰는 표가 많다. textarea 라 Enter 가 줄바꿈이 된다.
+  resize: 'none',
+  overflow: 'hidden',
+  lineHeight: 1.4,
+  display: 'block'
 };
+
+/**
+ * 내용에 맞춰 높이가 늘어나는 셀 입력칸.
+ *
+ * 한 줄짜리 input 이면 긴 텍스트가 잘려 보이고 줄바꿈도 못 넣는다.
+ * scrollHeight 로 매번 높이를 다시 잡아야 지우거나 붙여넣어도 정확히 맞는다.
+ */
+function CellInput({
+  value, onChange, style, ...rest
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  style?: React.CSSProperties;
+} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'style'>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      style={{ ...inputBase, ...style }}
+      {...rest}
+    />
+  );
+}
 
 /** 숫자 셀(증감 기호·괄호 음수 포함)은 우측 정렬 + 색상, 값 없음(-)은 가운데, 텍스트는 좌측 */
 function cellStyle(v: string): React.CSSProperties {
@@ -50,9 +95,31 @@ interface EditorProps {
   onAuthorChange?: (v: string) => void;
 }
 
+/** 병합할 범위 — 시작칸과 끝칸 */
+interface CellRange { r1: number; c1: number; r2: number; c2: number }
+
+const inRange = (sel: CellRange | null, r: number, c: number) =>
+  !!sel && r >= Math.min(sel.r1, sel.r2) && r <= Math.max(sel.r1, sel.r2)
+        && c >= Math.min(sel.c1, sel.c2) && c <= Math.max(sel.c1, sel.c2);
+
 export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: EditorProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  /** 셀 병합 대상. 셀을 누르면 시작점, Shift+클릭으로 끝점을 잡는다 */
+  const [sel, setSel] = useState<CellRange | null>(null);
+
+  const selSpansMany = !!sel && (sel.r1 !== sel.r2 || sel.c1 !== sel.c2);
+  const selMerge = sel ? mergeAt(block, sel.r1, sel.c1) : null;
+
+  const pickCell = (e: React.MouseEvent, r: number, c: number) => {
+    if (e.shiftKey) {
+      // Shift+클릭은 범위 지정이다. 막지 않으면 브라우저가 글자 선택을 해버린다.
+      e.preventDefault();
+      setSel(prev => (prev ? { ...prev, r2: r, c2: c } : { r1: r, c1: c, r2: r, c2: c }));
+    } else {
+      setSel({ r1: r, c1: c, r2: r, c2: c });
+    }
+  };
 
   /** 구글 독스/시트·엑셀에서 복사한 표를 통째로 받아 넣는다 */
   const applyClipboard = (html: string | null, text: string | null) => {
@@ -142,11 +209,11 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
             <tr>
               {block.headers.map((h, c) => (
                 <th key={c} style={{ ...cellBase, background: 'var(--btn-bg)', position: 'relative' }}>
-                  <input
+                  <CellInput
                     value={h}
-                    onChange={e => onChange(setHeader(block, c, e.target.value))}
+                    onChange={v => onChange(setHeader(block, c, v))}
                     placeholder={`열${c + 1}`}
-                    style={{ ...inputBase, fontWeight: 700 }}
+                    style={{ fontWeight: 700 }}
                   />
                   {block.headers.length > 1 && (
                     <button
@@ -179,16 +246,42 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
           <tbody>
             {block.rows.map((row, r) => (
               <tr key={r}>
-                {row.map((v, c) => (
-                  <td key={c} style={cellBase}>
-                    <input
-                      value={v}
-                      onChange={e => onChange(setCell(block, r, c, e.target.value))}
-                      style={{ ...inputBase, ...cellStyle(v) }}
-                    />
-                  </td>
-                ))}
-                <td style={{ border: 'none', textAlign: 'center' }}>
+                {row.map((v, c) => {
+                  if (isCovered(block, r, c)) return null;   // 다른 칸이 덮고 있다
+                  const { rowSpan, colSpan } = spanAt(block, r, c);
+                  const picked = inRange(sel, r, c);
+                  return (
+                    <td
+                      key={c}
+                      rowSpan={rowSpan}
+                      colSpan={colSpan}
+                      onMouseDown={e => pickCell(e, r, c)}
+                      style={{
+                        ...cellBase,
+                        ...(picked ? { outline: '2px solid var(--primary)', outlineOffset: '-2px' } : {}),
+                        ...(rowSpan > 1 || colSpan > 1 ? { background: 'var(--primary-alpha-subtle)' } : {})
+                      }}
+                    >
+                      <CellInput
+                        value={v}
+                        onChange={nv => onChange(setCell(block, r, c, nv))}
+                        onFocus={() => setSel(prev => (inRange(prev, r, c) ? prev : { r1: r, c1: c, r2: r, c2: c }))}
+                        style={cellStyle(v)}
+                      />
+                    </td>
+                  );
+                })}
+                <td style={{ border: 'none', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  <button
+                    onClick={() => onChange(addRow(block, r))}
+                    title="이 행 위에 추가"
+                    style={{
+                      border: 'none', background: 'none', color: 'var(--primary)',
+                      cursor: 'pointer', fontSize: '0.7rem', padding: '0 0.15rem'
+                    }}
+                  >
+                    ↑+
+                  </button>
                   {block.rows.length > 1 && (
                     <button
                       onClick={() => onChange(removeRow(block, r))}
@@ -213,8 +306,27 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
       </div>
 
       <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={() => onChange(addRow(block))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행</button>
+        {/* 매출 정산표처럼 최신 건이 위로 쌓이는 표가 있어 삽입 위치를 고를 수 있게 둔다 */}
+        <button onClick={() => onChange(addRow(block, 0))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행(위)</button>
+        <button onClick={() => onChange(addRow(block))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행(아래)</button>
         <button onClick={() => onChange(addColumn(block))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 열</button>
+        <button
+          onClick={() => sel && onChange(mergeCells(block, sel.r1, sel.c1, sel.r2, sel.c2))}
+          disabled={!selSpansMany}
+          className="btn"
+          title="셀을 누르고 Shift+클릭으로 범위를 잡은 뒤 누르세요"
+          style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', opacity: selSpansMany ? 1 : 0.45 }}
+        >
+          셀 병합
+        </button>
+        <button
+          onClick={() => sel && onChange(unmergeCells(block, sel.r1, sel.c1))}
+          disabled={!selMerge}
+          className="btn"
+          style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', opacity: selMerge ? 1 : 0.45 }}
+        >
+          병합 해제
+        </button>
         <button
           onClick={() => { setPasteText(''); setPasteOpen(v => !v); }}
           className="btn"
@@ -223,7 +335,8 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
           표 붙여넣기
         </button>
         <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-          구글 독스·엑셀에서 표를 복사해 이 영역에 Ctrl+V 하면 제목줄까지 그대로 들어옵니다.
+          셀 안에서 Enter 로 줄바꿈 · 셀 클릭 후 Shift+클릭으로 범위를 잡아 병합 ·
+          구글 독스·엑셀 표를 복사해 이 영역에 Ctrl+V 하면 제목줄까지 그대로 들어옵니다.
         </span>
       </div>
 
@@ -293,8 +406,10 @@ export function TableBlockView({ block }: { block: TableBlock }) {
                     background: 'var(--surface-dim)',
                     padding: '0.2rem 0.5rem',
                     fontWeight: 700,
-                    whiteSpace: 'nowrap',
-                    textAlign: 'center'
+                    // 셀 안 줄바꿈을 살리되 자동 줄바꿈은 막는다
+                    whiteSpace: 'pre',
+                    textAlign: 'center',
+                    verticalAlign: 'middle'
                   }}
                 >
                   {h}
@@ -305,20 +420,27 @@ export function TableBlockView({ block }: { block: TableBlock }) {
           <tbody>
             {block.rows.map((row, r) => (
               <tr key={r}>
-                {row.map((v, c) => (
-                  <td
-                    key={c}
-                    style={{
-                      border: '1px solid var(--border)',
-                      padding: '0.2rem 0.5rem',
-                      textAlign: 'center',
-                      whiteSpace: 'nowrap',
-                      ...cellStyle(v)
-                    }}
-                  >
-                    {isNumericCell(v) ? formatNumericCell(v) : v}
-                  </td>
-                ))}
+                {row.map((v, c) => {
+                  if (isCovered(block, r, c)) return null;
+                  const { rowSpan, colSpan } = spanAt(block, r, c);
+                  return (
+                    <td
+                      key={c}
+                      rowSpan={rowSpan}
+                      colSpan={colSpan}
+                      style={{
+                        border: '1px solid var(--border)',
+                        padding: '0.2rem 0.5rem',
+                        textAlign: 'center',
+                        whiteSpace: 'pre',
+                        verticalAlign: 'middle',
+                        ...cellStyle(v)
+                      }}
+                    >
+                      {isNumericCell(v) ? formatNumericCell(v) : v}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

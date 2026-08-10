@@ -7,7 +7,7 @@ import { Extension, type Editor } from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import type * as Y from 'yjs';
-import { briefExtensions, BRIEF_FRAGMENT } from '@/lib/realtime/briefSchema';
+import { briefExtensions, changeIndent, BRIEF_FRAGMENT } from '@/lib/realtime/briefSchema';
 
 interface Props {
   content: string;
@@ -51,8 +51,10 @@ function cleanWordHtml(html: string): string {
       const [prop] = p.split(':').map((s: string) => s.trim());
       if (!prop) continue;
       if (prop.startsWith('mso-')) continue;
+      // margin-left / text-indent 는 남긴다 — Indent 확장이 들여쓰기 단계로 환산한다.
+      // 이걸 지우면 워드·한글에서 붙여넣은 계단식 목차가 통째로 평평해진다.
       if (['font-family', 'font-size', 'line-height', 'margin', 'margin-top', 'margin-bottom',
-           'margin-left', 'margin-right', 'padding', 'text-indent'].includes(prop)) continue;
+           'margin-right', 'padding'].includes(prop)) continue;
       keep.push(p);
     }
     return keep.length ? `style="${keep.join('; ')}"` : '';
@@ -71,6 +73,66 @@ function cleanWordHtml(html: string): string {
   return h.trim();
 }
 
+/**
+ * 색 문자열의 밝기(0~1). 해석할 수 없으면 null.
+ * `#rgb` / `#rrggbb` / `rgb()` / 이름 몇 개만 본다 — 붙여넣기에서 실제로 오는 형태들이다.
+ */
+function luminance(raw: string): number | null {
+  const v = raw.trim().toLowerCase();
+  const named: Record<string, number> = { black: 0, white: 1, windowtext: 0, transparent: -1 };
+  if (v in named) return named[v] < 0 ? null : named[v];
+
+  let r: number, g: number, b: number;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].split('').map(c => c + c).join('') : hex[1];
+    r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+  } else {
+    const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(v);
+    if (!rgb) return null;
+    r = parseFloat(rgb[1]); g = parseFloat(rgb[2]); b = parseFloat(rgb[3]);
+  }
+  if (![r, g, b].every(Number.isFinite)) return null;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+/**
+ * 테마 기본색(거의 흰색·거의 검정)인가 — 의도한 강조색이 아니라 편집기 테마의 흔적이다.
+ *
+ * 배경색은 훨씬 좁게 본다. 형광펜·파스텔 강조는 원래 아주 밝아서(예 #fef08a, 명도 0.92)
+ * 글자색과 같은 기준을 쓰면 의도한 강조가 통째로 지워진다.
+ */
+const isThemeArtifactColor = (raw: string, isBackground: boolean): boolean => {
+  const l = luminance(raw);
+  if (l === null) return false;
+  return isBackground ? l > 0.97 || l < 0.04 : l > 0.88 || l < 0.12;
+};
+
+/**
+ * 붙여넣은 HTML 에서 **테마에 종속된 글자색·배경색만** 걷어낸다.
+ *
+ * 다크모드 워드에서 복사하면 글자색이 흰색으로 박혀 들어와 다른 사람의 밝은 화면에서
+ * 아예 안 보인다. 반대로 검정으로 바꿔 저장하면 다크모드에서 안 보인다.
+ * 어느 쪽이든 "그 사람 편집기의 테마"일 뿐 내용이 아니므로 저장하지 않는다.
+ * 빨강·파랑 같은 의도한 강조색은 그대로 둔다.
+ */
+export function stripThemeColors(html: string): string {
+  return html.replace(/\sstyle="([^"]*)"/gi, (whole, styles: string) => {
+    const kept = styles
+      .split(';')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .filter(decl => {
+        const i = decl.indexOf(':');
+        if (i < 0) return true;
+        const prop = decl.slice(0, i).trim().toLowerCase();
+        if (prop !== 'color' && prop !== 'background-color' && prop !== 'background') return true;
+        return !isThemeArtifactColor(decl.slice(i + 1), prop !== 'color');
+      });
+    return kept.length ? ` style="${kept.join('; ')}"` : '';
+  });
+}
+
 const WordPaste = Extension.create({
   name: 'wordPaste',
   addProseMirrorPlugins() {
@@ -78,6 +140,8 @@ const WordPaste = Extension.create({
       new Plugin({
         key: new PluginKey('wordPaste'),
         props: {
+          // 워드가 아닌 일반 붙여넣기도 테마 색을 들고 온다 — 모든 경로에서 걷어낸다
+          transformPastedHTML: (html: string) => stripThemeColors(html),
           handlePaste: (view, event) => {
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
@@ -87,7 +151,7 @@ const WordPaste = Extension.create({
             if (!isWord) return false;
 
             event.preventDefault();
-            const cleaned = cleanWordHtml(html);
+            const cleaned = stripThemeColors(cleanWordHtml(html));
             const parser = new DOMParser();
             const doc = parser.parseFromString(`<body>${cleaned}</body>`, 'text/html');
             const fragment = doc.body.innerHTML;
@@ -136,7 +200,8 @@ export default function BriefEditor({ content, onChange, editable, ydoc, provide
   const setContent = useCallback((html: string) => {
     if (!editor || collaborative) return;
     const cur = editor.getHTML();
-    if (cur !== html) editor.commands.setContent(html, { emitUpdate: false });
+    // preserveWhitespace 가 없으면 공백으로 만든 기존 들여쓰기가 파싱에서 접힌다
+    if (cur !== html) editor.commands.setContent(html, { emitUpdate: false, parseOptions: { preserveWhitespace: 'full' } });
   }, [editor, collaborative]);
 
   useEffect(() => { setContent(content); }, [content, setContent]);
@@ -176,6 +241,9 @@ const I = {
   fontColor: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 19h14"/><path d="M7 16L12 4l5 12"/><path d="M8.5 13h7"/></svg>,
   highlight: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>,
   chevron: <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M1 3l3 3 3-3z"/></svg>,
+  clearColor: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 19h14"/><path d="M7 16L12 4l5 12"/><path d="M8.5 13h7"/><line x1="4" y1="4" x2="20" y2="20" stroke="#ef4444" strokeWidth="2.2"/></svg>,
+  indent: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M3 8l3 4-3 4" strokeLinejoin="round"/></svg>,
+  outdent: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M6 8l-3 4 3 4" strokeLinejoin="round"/></svg>,
 };
 
 const CELL_COLORS = [
@@ -273,6 +341,11 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
         {btn(I.alignRight, '오른쪽 맞춤', () => editor.chain().focus().setTextAlign('right').run(), editor.isActive({ textAlign: 'right' }))}
       </div>
       <div className="tb-sep" />
+      <div className="tb-group">
+        {btn(I.outdent, '내어쓰기 (Shift+Tab)', () => editor.chain().focus().command(changeIndent(-1)).run())}
+        {btn(I.indent, '들여쓰기 (Tab)', () => editor.chain().focus().command(changeIndent(1)).run())}
+      </div>
+      <div className="tb-sep" />
       <div className="tb-group" ref={tableMenuRef} style={{ position: 'relative' }}>
         <button
           type="button"
@@ -360,6 +433,7 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
           <span className="tb-color-bar" style={{ background: '#fef08a' }} />
           <input type="color" defaultValue="#fef08a" onChange={e => editor.chain().focus().toggleHighlight({ color: e.target.value }).run()} className="tb-color-input" />
         </label>
+        {btn(I.clearColor, '글자색 지우기 (테마에 맞게 자동)', () => editor.chain().focus().unsetColor().unsetHighlight().run())}
         {btn(I.clear, '서식 지우기', () => editor.chain().focus().unsetAllMarks().clearNodes().run())}
       </div>
       <div className="tb-sep" />

@@ -3,8 +3,31 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
+import { getWeekNumber } from '@/lib/weekUtils';
 
-interface TeamInfo { id: number; name: string; division?: string; _count?: { users: number; parts?: number }; }
+/** 이번 주차 기준으로 이 팀이 공동 편집인지 — 서버 isCollabWeek 와 같은 규칙 */
+function isCollabOn(t: {
+  collabFromYear?: number | null; collabFromWeek?: number | null;
+  collabUntilYear?: number | null; collabUntilWeek?: number | null;
+}): boolean {
+  if (t.collabFromYear == null || t.collabFromWeek == null) return false;
+  const now = new Date();
+  const y = now.getFullYear();
+  const w = getWeekNumber(now);
+  const cmp = (ay: number, aw: number, by: number, bw: number) =>
+    ay !== by ? (ay < by ? -1 : 1) : aw !== bw ? (aw < bw ? -1 : 1) : 0;
+  if (cmp(y, w, t.collabFromYear, t.collabFromWeek) < 0) return false;
+  if (t.collabUntilYear != null && t.collabUntilWeek != null
+      && cmp(y, w, t.collabUntilYear, t.collabUntilWeek) > 0) return false;
+  return true;
+}
+
+interface TeamInfo {
+  id: number; name: string; division?: string;
+  collabFromYear?: number | null; collabFromWeek?: number | null;
+  collabUntilYear?: number | null; collabUntilWeek?: number | null;
+  _count?: { users: number; parts?: number };
+}
 interface UserInfo { id: number; name: string; role: string; teamId: number; position?: string; isPrimary?: boolean; teamIds?: number[]; }
 interface PartInfo { id: number; name: string; orderIdx: number; teamId: number; isActive: boolean; }
 interface MajorInfo { id: number; name: string; orderIdx: number; teamId: number; partId: number; isActive: boolean; }
@@ -105,6 +128,19 @@ export default function SettingsPage() {
     const res = await post('/api/teams', { name: newTeamName.trim(), division: newTeamDivision.trim() });
     if (res.ok) { setNewTeamName(''); setNewTeamDivision(''); fetchTeams(); } else alert((await res.json()).error);
   };
+  /**
+   * 팀별 실시간 공동 편집 켜기/끄기.
+   * 적용 주차는 서버가 정한다 — 지난 주차를 임의로 바꾸면 확정된 취합본이 재생성 대상이 된다.
+   */
+  const toggleCollab = async (t: TeamInfo, next: boolean) => {
+    const msg = next
+      ? `"${t.name}" 팀을 실시간 공동 편집으로 전환하시겠습니까?\n\n이번 주차부터 팀원이 하나의 주간보고 문서를 함께 작성합니다.\n지난 주차는 그대로 유지됩니다.`
+      : `"${t.name}" 팀의 실시간 공동 편집을 끄시겠습니까?\n\n이번 주차부터 기존처럼 개인별로 작성합니다.\n이미 함께 작성한 지난 주차는 그대로 유지됩니다.`;
+    if (!confirm(msg)) return;
+    const res = await post('/api/teams', { id: t.id, collab: next }, 'PATCH');
+    if (res.ok) fetchTeams(); else alert((await res.json()).error);
+  };
+
   const deleteTeam = async (id: number, name: string) => {
     if (!confirm(`"${name}" 팀을 삭제하시겠습니까? 모든 데이터가 삭제됩니다.`)) return;
     const res = await fetch(`/api/teams?id=${id}`, { method: 'DELETE' });
@@ -290,6 +326,22 @@ export default function SettingsPage() {
                 {t.name}
                 <span style={{ fontWeight: 400, fontSize: '0.85rem', color: 'var(--text-muted)' }}> ({t._count?.users ?? 0}명 · 파트 {t._count?.parts ?? 0})</span>
               </span>
+              {(() => {
+                const on = isCollabOn(t);
+                return (
+                  <label
+                    title={on
+                      ? '팀원이 하나의 주간보고 문서를 함께 작성합니다.'
+                      : '팀원이 각자 작성하고 팀장이 취합합니다.'}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    <input type="checkbox" checked={on} onChange={e => toggleCollab(t, e.target.checked)} />
+                    <span style={{ fontSize: '0.78rem', color: on ? 'var(--primary)' : 'var(--text-muted)', fontWeight: on ? 700 : 400 }}>
+                      함께 작성
+                    </span>
+                  </label>
+                );
+              })()}
               <button onClick={() => deleteTeam(t.id, t.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }}>✕</button>
             </div>
           ))}
