@@ -11,7 +11,7 @@
 import * as Y from 'yjs';
 import { generateKeyBetween } from 'fractional-indexing';
 import { generateId } from '../reportBlocks';
-import { BLOCK, cellKey, compareOrdered, sortedEntries, type Side } from './schema';
+import { BLOCK, MERGE, cellKey, compareOrdered, sortedEntries, type Side } from './schema';
 import { readSideMap, sideMap } from './buildDoc';
 
 export interface Author {
@@ -130,6 +130,8 @@ export function addTableBlock(
     }
     m.set(BLOCK.rows, rowMap);
     m.set(BLOCK.cells, new Y.Map());
+    // 병합 컨테이너는 여기서 미리 만든다 — 두 사람이 동시에 만들면 한쪽이 통째로 사라진다
+    m.set(BLOCK.merges, new Y.Map());
     sm.set(id, m);
   }, origin);
   return id;
@@ -372,6 +374,179 @@ export function removeColumn(
 }
 
 /** 정렬된 행/열 id 목록 — UI 렌더용 */
+/**
+ * 사각 범위를 하나로 합친다. 화면이 주는 인덱스를 **양 끝 칸의 id 로 바꿔** 저장한다.
+ *
+ * 겹치는 기존 병합은 지운다. 남겨두면 같은 칸을 둘이 덮어 rowspan 이 어긋난 표가 나온다.
+ * 덮이는 칸의 값은 지우지 않는다 — 병합을 풀면 그대로 돌아와야 한다.
+ */
+export function mergeCells(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  r1: number, c1: number, r2: number, c2: number, origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    if (!(b instanceof Y.Map)) return;
+    const rows = b.get(BLOCK.rows);
+    const cols = b.get(BLOCK.cols);
+    if (!(rows instanceof Y.Map) || !(cols instanceof Y.Map)) return;
+
+    const rids = sortedEntries(rows).map(([id]) => id);
+    const cids = sortedEntries(cols).map(([id]) => id);
+    const top = Math.min(r1, r2), bottom = Math.max(r1, r2);
+    const left = Math.min(c1, c2), right = Math.max(c1, c2);
+    if (top < 0 || left < 0 || bottom >= rids.length || right >= cids.length) return;
+    if ((bottom - top + 1) * (right - left + 1) <= 1) return;
+
+    // 컨테이너는 시드·표 생성 시점에 만들어져 있다. 여기서 만드는 건 그 이전에 만들어진
+    // 문서를 위한 폴백이며, 그 경우에만 동시 생성 위험이 남는다.
+    let merges = b.get(BLOCK.merges);
+    if (!(merges instanceof Y.Map)) {
+      merges = new Y.Map();
+      b.set(BLOCK.merges, merges);
+    }
+    const mm = merges as Y.Map<unknown>;
+
+    // 새 범위와 겹치는 기존 병합 제거
+    const rowIdx = new Map(rids.map((id, i) => [id, i]));
+    const colIdx = new Map(cids.map((id, i) => [id, i]));
+    const dead: string[] = [];
+    mm.forEach((entry, mid) => {
+      if (!(entry instanceof Y.Map)) { dead.push(mid); return; }
+      const er1 = rowIdx.get(String(entry.get(MERGE.anchorRow) ?? ''));
+      const er2 = rowIdx.get(String(entry.get(MERGE.endRow) ?? ''));
+      const ec1 = colIdx.get(String(entry.get(MERGE.anchorCol) ?? ''));
+      const ec2 = colIdx.get(String(entry.get(MERGE.endCol) ?? ''));
+      if (er1 === undefined || er2 === undefined || ec1 === undefined || ec2 === undefined) {
+        dead.push(mid);   // 끝점이 사라진 병합은 이참에 정리한다
+        return;
+      }
+      const overlap =
+        Math.min(er1, er2) <= bottom && Math.max(er1, er2) >= top &&
+        Math.min(ec1, ec2) <= right && Math.max(ec1, ec2) >= left;
+      if (overlap) dead.push(mid);
+    });
+    dead.forEach(k => mm.delete(k));
+
+    const em = new Y.Map();
+    em.set(MERGE.anchorRow, rids[top]);
+    em.set(MERGE.anchorCol, cids[left]);
+    em.set(MERGE.endRow, rids[bottom]);
+    em.set(MERGE.endCol, cids[right]);
+    mm.set(generateId(), em);
+  }, origin);
+}
+
+/** (r,c) 를 덮는 병합을 푼다 */
+export function unmergeCells(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  r: number, c: number, origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    if (!(b instanceof Y.Map)) return;
+    const rows = b.get(BLOCK.rows);
+    const cols = b.get(BLOCK.cols);
+    const merges = b.get(BLOCK.merges);
+    if (!(rows instanceof Y.Map) || !(cols instanceof Y.Map) || !(merges instanceof Y.Map)) return;
+
+    const rowIdx = new Map(sortedEntries(rows).map(([id], i) => [id, i]));
+    const colIdx = new Map(sortedEntries(cols).map(([id], i) => [id, i]));
+    const dead: string[] = [];
+    merges.forEach((entry, mid) => {
+      if (!(entry instanceof Y.Map)) { dead.push(mid); return; }
+      const r1 = rowIdx.get(String(entry.get(MERGE.anchorRow) ?? ''));
+      const r2 = rowIdx.get(String(entry.get(MERGE.endRow) ?? ''));
+      const c1 = colIdx.get(String(entry.get(MERGE.anchorCol) ?? ''));
+      const c2 = colIdx.get(String(entry.get(MERGE.endCol) ?? ''));
+      if (r1 === undefined || r2 === undefined || c1 === undefined || c2 === undefined) return;
+      if (r >= Math.min(r1, r2) && r <= Math.max(r1, r2) &&
+          c >= Math.min(c1, c2) && c <= Math.max(c1, c2)) dead.push(mid);
+    });
+    dead.forEach(k => merges.delete(k));
+  }, origin);
+}
+
+// ── 인덱스 → id 래퍼 ─────────────────────────────────────────
+//
+// 화면은 행·열을 인덱스로 다루고 문서는 id 로 다룬다. 변환을 호출할 때마다 하면
+// 곳곳에 흩어지므로 여기 한 곳에 모은다. 인덱스는 **호출 시점의 로컬 문서 기준**으로
+// 즉시 id 로 바뀌므로, 그 뒤 원격 편집이 들어와도 엉뚱한 칸을 건드리지 않는다.
+
+function blockOf(doc: Y.Doc, catId: string | number, side: Side, blockId: string): Y.Map<unknown> | null {
+  const sm = readSideMap(doc, catId, side);
+  const b = sm?.get(blockId);
+  return b instanceof Y.Map ? b : null;
+}
+
+export function setCellAt(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  r: number, c: number, value: string, origin?: unknown
+): void {
+  const b = blockOf(doc, catId, side, blockId);
+  if (!b) return;
+  const rid = rowIds(b)[r];
+  const cid = colIds(b)[c];
+  if (!rid || !cid) return;
+  setCell(doc, catId, side, blockId, rid, cid, value, origin);
+}
+
+export function setHeaderAt(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  c: number, value: string, origin?: unknown
+): void {
+  const b = blockOf(doc, catId, side, blockId);
+  if (!b) return;
+  const cid = colIds(b)[c];
+  if (!cid) return;
+  setHeader(doc, catId, side, blockId, cid, value, origin);
+}
+
+/** at 을 주면 그 위치 위에 삽입, 없으면 맨 아래 */
+export function insertRowAt(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  at?: number, origin?: unknown
+): void {
+  const b = blockOf(doc, catId, side, blockId);
+  if (!b) return;
+  if (at === undefined) {
+    insertRow(doc, catId, side, blockId, 'bottom', undefined, origin);
+    return;
+  }
+  const ids = rowIds(b);
+  if (at <= 0 || ids.length === 0) {
+    insertRow(doc, catId, side, blockId, 'top', undefined, origin);
+    return;
+  }
+  const anchor = ids[Math.min(at, ids.length - 1)];
+  if (at >= ids.length) insertRow(doc, catId, side, blockId, 'bottom', undefined, origin);
+  else insertRow(doc, catId, side, blockId, 'above', anchor, origin);
+}
+
+export function removeRowAt(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, r: number, origin?: unknown
+): void {
+  const b = blockOf(doc, catId, side, blockId);
+  if (!b) return;
+  const rid = rowIds(b)[r];
+  if (!rid) return;
+  removeRow(doc, catId, side, blockId, rid, origin);
+}
+
+export function removeColumnAt(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, c: number, origin?: unknown
+): void {
+  const b = blockOf(doc, catId, side, blockId);
+  if (!b) return;
+  const cid = colIds(b)[c];
+  if (!cid) return;
+  removeColumn(doc, catId, side, blockId, cid, origin);
+}
+
 export function rowIds(block: Y.Map<unknown>): string[] {
   return sortedEntries(block.get(BLOCK.rows) as Y.Map<unknown> | undefined).map(([id]) => id);
 }

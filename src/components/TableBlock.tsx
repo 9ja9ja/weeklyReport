@@ -87,12 +87,35 @@ function cellStyle(v: string): React.CSSProperties {
   return { textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...(color ? { color, fontWeight: 700 } : {}) };
 }
 
+/**
+ * 표 편집 연산.
+ *
+ * 공동 편집에서는 표를 통째로 교체하면 안 된다 — 같은 순간 남이 고친 칸까지 되돌려버린다.
+ * 그래서 동작마다 세분된 연산을 받는다. 주지 않으면(개인 작성) onChange 로 통째 교체한다.
+ */
+export interface TableOps {
+  setCaption(v: string): void;
+  setHeader(c: number, v: string): void;
+  setCell(r: number, c: number, v: string): void;
+  /** at 을 주면 그 행 위에, 없으면 맨 아래 */
+  addRow(at?: number): void;
+  removeRow(r: number): void;
+  addColumn(): void;
+  removeColumn(c: number): void;
+  merge(r1: number, c1: number, r2: number, c2: number): void;
+  unmerge(r: number, c: number): void;
+  /** 표 붙여넣기 — 내용을 통째로 갈아엎는다 */
+  replaceAll(headers: string[], rows: string[][]): void;
+}
+
 interface EditorProps {
   block: TableBlock;
   onChange: (next: TableBlock) => void;
   onRemove: () => void;
   /** 취합본에서 작성자 표기를 편집할 때 */
   onAuthorChange?: (v: string) => void;
+  /** 공동 편집일 때만 준다. 있으면 onChange 대신 이쪽으로 나간다 */
+  ops?: TableOps;
 }
 
 /** 병합할 범위 — 시작칸과 끝칸 */
@@ -102,7 +125,20 @@ const inRange = (sel: CellRange | null, r: number, c: number) =>
   !!sel && r >= Math.min(sel.r1, sel.r2) && r <= Math.max(sel.r1, sel.r2)
         && c >= Math.min(sel.c1, sel.c2) && c <= Math.max(sel.c1, sel.c2);
 
-export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: EditorProps) {
+export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, ops }: EditorProps) {
+  /** 연산이 주어지면 그쪽으로, 아니면 기존처럼 통째 교체 */
+  const op: TableOps = ops ?? {
+    setCaption: v => onChange({ ...block, caption: v }),
+    setHeader: (c, v) => onChange(setHeader(block, c, v)),
+    setCell: (r, c, v) => onChange(setCell(block, r, c, v)),
+    addRow: at => onChange(addRow(block, at)),
+    removeRow: r => onChange(removeRow(block, r)),
+    addColumn: () => onChange(addColumn(block)),
+    removeColumn: c => onChange(removeColumn(block, c)),
+    merge: (r1, c1, r2, c2) => onChange(mergeCells(block, r1, c1, r2, c2)),
+    unmerge: (r, c) => onChange(unmergeCells(block, r, c)),
+    replaceAll: (headers, rows) => onChange({ ...block, headers, rows, merges: undefined })
+  };
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   /** 셀 병합 대상. 셀을 누르면 시작점, Shift+클릭으로 끝점을 잡는다 */
@@ -125,7 +161,13 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
   const applyClipboard = (html: string | null, text: string | null) => {
     const parsed = parseClipboardTable(html, text);
     if (!parsed) return false;
-    onChange({ ...block, headers: parsed.headers, rows: parsed.rows });
+    // 공동 편집 중에는 남이 쓰던 표를 통째로 갈아엎는 동작이라 한 번 묻는다
+    if (ops && (block.rows.some(r => r.some(v => v.trim())) || block.headers.some(h => h.trim()))) {
+      if (!confirm('표 내용을 붙여넣은 것으로 모두 바꿉니다. 다른 팀원이 작성한 내용도 함께 사라집니다. 계속할까요?')) {
+        return true;
+      }
+    }
+    op.replaceAll(parsed.headers, parsed.rows);
     return true;
   };
 
@@ -163,7 +205,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
         </span>
         <input
           value={block.caption}
-          onChange={e => onChange({ ...block, caption: e.target.value })}
+          onChange={e => op.setCaption(e.target.value)}
           placeholder="표 제목 (예: 문의 대응)"
           className="input-field"
           style={{
@@ -211,13 +253,13 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
                 <th key={c} style={{ ...cellBase, background: 'var(--btn-bg)', position: 'relative' }}>
                   <CellInput
                     value={h}
-                    onChange={v => onChange(setHeader(block, c, v))}
+                    onChange={v => op.setHeader(c, v)}
                     placeholder={`열${c + 1}`}
                     style={{ fontWeight: 700 }}
                   />
                   {block.headers.length > 1 && (
                     <button
-                      onClick={() => onChange(removeColumn(block, c))}
+                      onClick={() => op.removeColumn(c)}
                       title="열 삭제"
                       style={{
                         position: 'absolute',
@@ -264,7 +306,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
                     >
                       <CellInput
                         value={v}
-                        onChange={nv => onChange(setCell(block, r, c, nv))}
+                        onChange={nv => op.setCell(r, c, nv)}
                         onFocus={() => setSel(prev => (inRange(prev, r, c) ? prev : { r1: r, c1: c, r2: r, c2: c }))}
                         style={cellStyle(v)}
                       />
@@ -273,7 +315,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
                 })}
                 <td style={{ border: 'none', textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button
-                    onClick={() => onChange(addRow(block, r))}
+                    onClick={() => op.addRow(r)}
                     title="이 행 위에 추가"
                     style={{
                       border: 'none', background: 'none', color: 'var(--primary)',
@@ -284,7 +326,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
                   </button>
                   {block.rows.length > 1 && (
                     <button
-                      onClick={() => onChange(removeRow(block, r))}
+                      onClick={() => op.removeRow(r)}
                       title="행 삭제"
                       style={{
                         border: 'none',
@@ -307,11 +349,11 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
 
       <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
         {/* 매출 정산표처럼 최신 건이 위로 쌓이는 표가 있어 삽입 위치를 고를 수 있게 둔다 */}
-        <button onClick={() => onChange(addRow(block, 0))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행(위)</button>
-        <button onClick={() => onChange(addRow(block))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행(아래)</button>
-        <button onClick={() => onChange(addColumn(block))} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 열</button>
+        <button onClick={() => op.addRow(0)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행(위)</button>
+        <button onClick={() => op.addRow()} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 행(아래)</button>
+        <button onClick={() => op.addColumn()} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 열</button>
         <button
-          onClick={() => sel && onChange(mergeCells(block, sel.r1, sel.c1, sel.r2, sel.c2))}
+          onClick={() => sel && op.merge(sel.r1, sel.c1, sel.r2, sel.c2)}
           disabled={!selSpansMany}
           className="btn"
           title="셀을 누르고 Shift+클릭으로 범위를 잡은 뒤 누르세요"
@@ -320,7 +362,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange }: 
           셀 병합
         </button>
         <button
-          onClick={() => sel && onChange(unmergeCells(block, sel.r1, sel.c1))}
+          onClick={() => sel && op.unmerge(sel.r1, sel.c1)}
           disabled={!selMerge}
           className="btn"
           style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', opacity: selMerge ? 1 : 0.45 }}

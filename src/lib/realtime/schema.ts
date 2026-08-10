@@ -15,7 +15,8 @@
  *                          caption: Y.Text,
  *                          cols: Y.Map<colId, Y.Map{ order, header: string }>,
  *                          rows: Y.Map<rowId, Y.Map{ order }>,
- *                          cells: Y.Map<`${rowId}:${colId}`, string> }
+ *                          cells: Y.Map<`${rowId}:${colId}`, string>,
+ *                          merges: Y.Map<mergeId, Y.Map{ ar, ac, er, ec }> }
  *
  * ── 왜 Y.Array 가 아니라 Y.Map + order 인가 ────────────────────
  * Y.Array 에서 드래그 이동은 delete + insert 인데, 두 사람이 같은 블록을 동시에 옮기면
@@ -66,6 +67,7 @@ export const BLOCK = {
   cols: 'cols',
   rows: 'rows',
   cells: 'cells',
+  merges: 'merges',
   // 공통 하위
   header: 'header',
   text: 'text'
@@ -73,6 +75,20 @@ export const BLOCK = {
 
 /** 표 셀 키 — rowId 와 colId 에는 ':' 가 들어가지 않는다(generateId 는 base36) */
 export const cellKey = (rowId: string, colId: string) => `${rowId}:${colId}`;
+
+/**
+ * 병합 한 덩어리. **인덱스가 아니라 양 끝 칸의 id 로 잡는다.**
+ *
+ * 인덱스로 저장하면 다른 사람이 위에 행을 넣는 순간 좌표가 어긋나 엉뚱한 칸을 덮는다.
+ * 끝점을 id 로 두면 안쪽에 행이 생기면 범위가 자연히 늘고, 지워지면 줄어든다.
+ * 끝점 자체가 지워진 병합은 materialize 에서 버린다.
+ */
+export const MERGE = {
+  anchorRow: 'ar',
+  anchorCol: 'ac',
+  endRow: 'er',
+  endCol: 'ec'
+} as const;
 
 export type OrderedEntry<T> = { id: string; order: string; value: T };
 

@@ -10,7 +10,7 @@
 import * as Y from 'yjs';
 import { generateKeyBetween } from 'fractional-indexing';
 import { generateId, isTableBlock, type ContentBlock } from '../reportBlocks';
-import { BLOCK, META, ROOT, SCHEMA_VERSION, SIDES, cellKey, type Side } from './schema';
+import { BLOCK, MERGE, META, ROOT, SCHEMA_VERSION, SIDES, cellKey, type Side } from './schema';
 
 /** ReportItem/SummaryData 의 contents 형태 */
 export type EditorState = Record<string, { current: ContentBlock[]; next: ContentBlock[] }>;
@@ -109,6 +109,26 @@ function buildTableBlock(b: Extract<ContentBlock, { type: 'table' }>, order: str
     });
   });
   m.set(BLOCK.cells, cells);
+
+  // 병합 — 인덱스를 양 끝 칸의 id 로 바꿔 둔다.
+  // 인덱스로 두면 남이 위에 행을 넣는 순간 엉뚱한 칸을 덮는다.
+  const merges = new Y.Map();
+  (b.merges ?? []).forEach((mg, i) => {
+    const r1 = mg.r, c1 = mg.c;
+    const r2 = mg.r + mg.rowSpan - 1, c2 = mg.c + mg.colSpan - 1;
+    if (r1 < 0 || c1 < 0 || r2 >= rowIds.length || c2 >= colIds.length) return;
+    if (mg.rowSpan * mg.colSpan <= 1) return;
+    const em = new Y.Map();
+    em.set(MERGE.anchorRow, rowIds[r1]);
+    em.set(MERGE.anchorCol, colIds[c1]);
+    em.set(MERGE.endRow, rowIds[r2]);
+    em.set(MERGE.endCol, colIds[c2]);
+    merges.set(`m${i}`, em);
+  });
+  // 비어 있어도 **항상** 넣는다.
+  // 두 사람이 각자 이 컨테이너를 만들면 Y.Map 키가 LWW 라 한쪽 맵이 통째로 이겨
+  // 상대의 병합이 흔적 없이 사라진다. 컨테이너 생성은 시드 한 곳에서만 한다.
+  m.set(BLOCK.merges, merges);
   return m;
 }
 

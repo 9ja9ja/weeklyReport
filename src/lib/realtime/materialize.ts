@@ -8,8 +8,8 @@
  * 룸이 오염됐을 때 그대로 DB 에 실린다. Worker 는 ydoc 바이트만 보낸다.
  */
 import * as Y from 'yjs';
-import type { ContentBlock, SubBlock, TableBlock } from '../reportBlocks';
-import { BLOCK, META, ROOT, SIDES, cellKey, readText, sortedEntries } from './schema';
+import type { CellMerge, ContentBlock, SubBlock, TableBlock } from '../reportBlocks';
+import { BLOCK, MERGE, META, ROOT, SIDES, cellKey, readText, sortedEntries } from './schema';
 import type { EditorState } from './buildDoc';
 
 export interface DocMeta {
@@ -54,6 +54,53 @@ function materializeSub(id: string, b: Y.Map<unknown>): SubBlock & { authorId?: 
   };
 }
 
+/**
+ * 병합 목록을 화면이 쓰는 인덱스 좌표로 되돌린다.
+ *
+ * 두 사람이 겹치는 범위를 동시에 병합할 수 있는데, 겹친 채로 두면 같은 칸을 두 병합이 덮어
+ * rowspan/colspan 이 어긋난 표가 나온다. **id 순으로 먼저 온 것을 남기고 겹치는 것을 버려**
+ * 모든 클라이언트가 같은 표를 보게 한다.
+ */
+function materializeMerges(
+  b: Y.Map<unknown>, rowIds: string[], colIds: string[]
+): CellMerge[] | undefined {
+  const raw = b.get(BLOCK.merges);
+  if (!(raw instanceof Y.Map) || raw.size === 0) return undefined;
+
+  const rowIdx = new Map(rowIds.map((id, i) => [id, i]));
+  const colIdx = new Map(colIds.map((id, i) => [id, i]));
+
+  const candidates: { id: string; m: CellMerge }[] = [];
+  raw.forEach((entry, mid) => {
+    if (!(entry instanceof Y.Map)) return;
+    const r1 = rowIdx.get(String(entry.get(MERGE.anchorRow) ?? ''));
+    const r2 = rowIdx.get(String(entry.get(MERGE.endRow) ?? ''));
+    const c1 = colIdx.get(String(entry.get(MERGE.anchorCol) ?? ''));
+    const c2 = colIdx.get(String(entry.get(MERGE.endCol) ?? ''));
+    // 끝점 행·열이 지워진 병합은 버린다 — 남기면 어디를 덮는지 알 수 없다
+    if (r1 === undefined || r2 === undefined || c1 === undefined || c2 === undefined) return;
+
+    const top = Math.min(r1, r2), bottom = Math.max(r1, r2);
+    const left = Math.min(c1, c2), right = Math.max(c1, c2);
+    const rowSpan = bottom - top + 1;
+    const colSpan = right - left + 1;
+    if (rowSpan * colSpan <= 1) return;   // 안쪽이 지워져 한 칸만 남았다 = 병합 아님
+    candidates.push({ id: mid, m: { r: top, c: left, rowSpan, colSpan } });
+  });
+
+  candidates.sort((a, b2) => (a.id < b2.id ? -1 : a.id > b2.id ? 1 : 0));
+
+  const kept: CellMerge[] = [];
+  for (const { m } of candidates) {
+    const clash = kept.some(k =>
+      m.r <= k.r + k.rowSpan - 1 && m.r + m.rowSpan - 1 >= k.r &&
+      m.c <= k.c + k.colSpan - 1 && m.c + m.colSpan - 1 >= k.c
+    );
+    if (!clash) kept.push(m);
+  }
+  return kept.length ? kept : undefined;
+}
+
 function materializeTable(id: string, b: Y.Map<unknown>): TableBlock & { authorId?: number | null } {
   const colEntries = sortedEntries(b.get(BLOCK.cols) as Y.Map<unknown> | undefined);
   const rowEntries = sortedEntries(b.get(BLOCK.rows) as Y.Map<unknown> | undefined);
@@ -67,6 +114,7 @@ function materializeTable(id: string, b: Y.Map<unknown>): TableBlock & { authorI
       return typeof v === 'string' ? v : '';
     })
   );
+  const merges = materializeMerges(b, rowEntries.map(([rid]) => rid), colEntries.map(([cid]) => cid));
 
   const authorId = b.get(BLOCK.authorId);
   return {
@@ -75,6 +123,7 @@ function materializeTable(id: string, b: Y.Map<unknown>): TableBlock & { authorI
     caption: readText(b.get(BLOCK.caption)),
     headers,
     rows,
+    ...(merges ? { merges } : {}),
     authorText: String(b.get(BLOCK.authorText) ?? ''),
     authorId: typeof authorId === 'number' ? authorId : null
   };

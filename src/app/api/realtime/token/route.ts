@@ -12,9 +12,23 @@ import { ensureWeekDocument } from '@/lib/realtime/seed';
  * Worker 는 Next 세션 쿠키를 검증할 수 없으므로, 여기서 세션·권한·잠금을 확인하고
  * 그 판정을 서명한 단기 토큰에 담아 넘긴다. Worker 는 토큰만 믿는다.
  *
- * GET /api/realtime/token?teamId=&year=&weekNum=
+ * ── GET 과 POST 를 나눈 이유 ──────────────────────────────
+ * 문서 생성(시드)은 **POST 에만** 있다. 세션 쿠키가 sameSite=lax 라 크로스사이트
+ * 최상위 GET 내비게이션에는 쿠키가 실린다 — 시드가 GET 에 있으면 링크 하나로
+ * 임의 팀·주차의 문서를 만들어낼 수 있다. 재접속마다 도는 토큰 갱신은 부작용이 없어야 하므로 GET.
+ *
+ * GET  /api/realtime/token?teamId=&year=&weekNum=   토큰만 발급 (문서 없으면 409)
+ * POST /api/realtime/token { teamId, year, weekNum } 필요하면 문서를 만들고 발급
  */
-export async function GET(request: Request) {
+
+/** 주차 값 범위 — 벗어난 값은 룸 이름조차 만들 수 없어 쓰레기 행만 남는다 */
+function validWeek(year: number, weekNum: number): boolean {
+  return Number.isInteger(year) && Number.isInteger(weekNum)
+    && year >= 2000 && year <= 2100
+    && weekNum >= 1 && weekNum <= 53;
+}
+
+async function issue(teamId: number, year: number, weekNum: number, allowSeed: boolean) {
   const me = await currentUserId();
   if (!me) return unauthorized();
 
@@ -23,12 +37,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: '실시간 기능이 아직 구성되지 않았습니다.' }, { status: 503 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const teamId = Number(searchParams.get('teamId'));
-  const year = Number(searchParams.get('year'));
-  const weekNum = Number(searchParams.get('weekNum'));
-  if (![teamId, year, weekNum].every(Number.isInteger)) {
-    return NextResponse.json({ error: 'teamId·year·weekNum 이 필요합니다.' }, { status: 400 });
+  if (!Number.isInteger(teamId) || !validWeek(year, weekNum)) {
+    return NextResponse.json({ error: 'teamId·year·weekNum 이 올바르지 않습니다.' }, { status: 400 });
   }
 
   const user = await prisma.user.findUnique({
@@ -50,7 +60,10 @@ export async function GET(request: Request) {
 
   const team = await prisma.team.findUnique({
     where: { id: teamId },
-    select: { collabFromYear: true, collabFromWeek: true }
+    select: {
+      collabFromYear: true, collabFromWeek: true,
+      collabUntilYear: true, collabUntilWeek: true
+    }
   });
   if (!team) return NextResponse.json({ error: '팀을 찾을 수 없습니다.' }, { status: 404 });
 
@@ -65,7 +78,9 @@ export async function GET(request: Request) {
   const environment = currentEnvironment();
 
   // 문서가 없으면 서버가 원자적으로 만든다. 클라이언트가 만들면 동시 접속 시 중복·소실이 난다.
-  const seeded = await ensureWeekDocument(environment, teamId, year, weekNum);
+  const seeded = allowSeed
+    ? await ensureWeekDocument(environment, teamId, year, weekNum)
+    : { created: false, reason: undefined as string | undefined };
 
   const doc = await prisma.sharedDoc.findUnique({
     where: { environment_teamId_year_weekNum: { environment, teamId, year, weekNum } },
@@ -114,4 +129,19 @@ export async function GET(request: Request) {
     // 토큰은 사용자·문서별이라 절대 캐시되면 안 된다
     headers: { 'Cache-Control': 'no-store' }
   });
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  return issue(
+    Number(searchParams.get('teamId')),
+    Number(searchParams.get('year')),
+    Number(searchParams.get('weekNum')),
+    false
+  );
+}
+
+export async function POST(request: Request) {
+  const b = await request.json().catch(() => ({}));
+  return issue(Number(b?.teamId), Number(b?.year), Number(b?.weekNum), true);
 }

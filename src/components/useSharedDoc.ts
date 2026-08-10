@@ -1,0 +1,367 @@
+'use client';
+
+/**
+ * 주간보고 공유 문서 접속 (팀·주차당 문서 1개).
+ *
+ * 요약본(useBriefRealtime)과 같은 구조지만 문서 좌표에 팀이 들어가고, 편집 권한이
+ * 팀원 전체다(요약본은 마스터만). 공동 편집 대상이 아닌 팀·주차는 조용히 legacy 로
+ * 떨어져 기존 개인 작성 화면이 그대로 돈다.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Y from 'yjs';
+import YProvider from 'y-partyserver/provider';
+
+export type DocMode = 'loading' | 'legacy' | 'realtime';
+
+export interface DocPeer {
+  uid: number;
+  name: string;
+  color: string;
+}
+
+export interface SharedDocState {
+  mode: DocMode;
+  legacyReason: string;
+  doc: Y.Doc | null;
+  provider: YProvider | null;
+  /** 로컬 편집에 붙이는 origin — UndoManager 가 "내 변경만" 되돌리는 기준이 된다 */
+  origin: object | null;
+  undo: Y.UndoManager | null;
+  connected: boolean;
+  /** 서버 문서를 한 번이라도 받았는가. 순단으로 내려가지 않는다 */
+  synced: boolean;
+  readOnly: boolean;
+  master: boolean;
+  locked: boolean;
+  frozen: boolean;
+  revision: number;
+  savedAt: number | null;
+  notice: string;
+  peers: DocPeer[];
+  localUser: DocPeer | null;
+}
+
+function colorOf(uid: number): string {
+  const palette = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
+  return palette[Math.abs(uid) % palette.length];
+}
+
+interface TokenResponse {
+  token: string;
+  room: string;
+  host: string | null;
+  docGeneration: number;
+  writeEpoch: number;
+  revision: number;
+  isLocked: boolean;
+  readOnly: boolean;
+  master: boolean;
+}
+
+const initial: SharedDocState = {
+  mode: 'loading', legacyReason: '', doc: null, provider: null, origin: null, undo: null,
+  connected: false, synced: false,
+  readOnly: true, master: false, locked: false, frozen: false,
+  revision: 0, savedAt: null, notice: '', peers: [], localUser: null
+};
+
+export function useSharedDoc(
+  teamId: number | null, year: number, weekNum: number,
+  userId: number | null, userName: string
+): SharedDocState {
+  const [state, setState] = useState<SharedDocState>(initial);
+
+  useEffect(() => {
+    if (!userId || !teamId) return;
+
+    let disposed = false;
+    let provider: YProvider | null = null;
+    let doc: Y.Doc | null = null;
+    let undo: Y.UndoManager | null = null;
+    let tokenFailures = 0;
+
+    const toLegacy = (reason: string) => {
+      if (disposed) return;
+      undo?.destroy();
+      provider?.destroy();
+      doc?.destroy();
+      undo = null; provider = null; doc = null;
+      setState({ ...initial, mode: 'legacy', legacyReason: reason });
+    };
+
+    const fetchToken = async (seed = false): Promise<TokenResponse | { legacy: string }> => {
+      try {
+        const res = seed
+          ? await fetch('/api/realtime/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ teamId, year, weekNum })
+            })
+          : await fetch(`/api/realtime/token?teamId=${teamId}&year=${year}&weekNum=${weekNum}`);
+        if (res.ok) return res.json();
+        // 409 = 공동 편집 대상이 아닌 주차, 503 = 미구성, 403 = 조회 전용 계정
+        if ([403, 409, 503].includes(res.status)) return { legacy: '' };
+        return { legacy: '실시간 편집에 연결하지 못했습니다. 기존 방식으로 작성합니다.' };
+      } catch {
+        return { legacy: '실시간 편집에 연결하지 못했습니다. 기존 방식으로 작성합니다.' };
+      }
+    };
+
+    (async () => {
+      const first = await fetchToken(true);
+      if (disposed) return;
+      if ('legacy' in first) { toLegacy(first.legacy); return; }
+      if (!first.host) { toLegacy(''); return; }
+
+      const localUser: DocPeer = { uid: userId, name: userName, color: colorOf(userId) };
+      const origin = { local: true };
+
+      doc = new Y.Doc();
+      provider = new YProvider(first.host, first.room, doc, {
+        params: async () => {
+          const t = await fetchToken();
+          if ('legacy' in t) {
+            // 권한이 사라졌거나 컷오버가 꺼졌다. 토큰 없이 붙으면 401 재접속만 무한히 돈다.
+            if (++tokenFailures >= 2) {
+              toLegacy(t.legacy || '실시간 편집이 종료되어 기존 방식으로 전환했습니다.');
+            }
+            return {};
+          }
+          tokenFailures = 0;
+          return { token: t.token };
+        },
+        connect: true
+      });
+
+      // 내 변경만 되돌린다. 기존 useHistory 는 화면 상태를 통째로 되돌려
+      // 남이 방금 쓴 것까지 지웠다 — 공동 편집에서는 절대 쓰면 안 된다.
+      undo = new Y.UndoManager([doc.getMap('cats')], { trackedOrigins: new Set([origin]) });
+
+      provider.awareness.setLocalStateField('user', localUser);
+
+      const readPeers = (): DocPeer[] => {
+        const out: DocPeer[] = [];
+        const seen = new Set<number>();
+        provider?.awareness.getStates().forEach(st => {
+          const u = (st as { user?: { uid?: number; name?: string; color?: string } }).user;
+          if (!u || typeof u.uid !== 'number' || seen.has(u.uid)) return;
+          seen.add(u.uid);
+          out.push({ uid: u.uid, name: u.name ?? '', color: u.color ?? colorOf(u.uid) });
+        });
+        return out;
+      };
+
+      const patch = (p: Partial<SharedDocState>) => {
+        if (!disposed) setState(s => ({ ...s, ...p }));
+      };
+
+      /** 권한은 한곳에서 계산한다 — 나눠 두면 잠금 해제 뒤에도 읽기전용이 남는다 */
+      const applyPermission = (p: { locked?: boolean; frozen?: boolean }) => {
+        if (disposed) return;
+        setState(s => {
+          const locked = p.locked ?? s.locked;
+          const frozen = p.frozen ?? s.frozen;
+          return { ...s, locked, frozen, readOnly: locked || frozen };
+        });
+      };
+
+      /**
+       * 토큰에도 readOnly 가 박혀 있어, 잠금이 풀려도 재접속 전까지 서버가 쓰기를 버린다.
+       * 클라이언트만 열어주면 입력이 조용히 사라지므로 연결을 새로 맺는다.
+       */
+      const reconnect = () => {
+        if (disposed || !provider) return;
+        provider.disconnect();
+        provider.connect();
+      };
+
+      provider.on('status', (e: { status: string }) => patch({ connected: e.status === 'connected' }));
+      provider.on('sync', (ok: boolean) => { if (ok) patch({ synced: true }); });
+      provider.awareness.on('change', () => patch({ peers: readPeers() }));
+
+      provider.on('custom-message', (raw: string) => {
+        let m: { type?: string; [k: string]: unknown };
+        try { m = JSON.parse(raw); } catch { return; }
+        switch (m.type) {
+          case 'hello':
+            patch({ revision: Number(m.revision) || 0 });
+            applyPermission({ locked: !!m.locked, frozen: !!m.frozen });
+            break;
+          case 'saved':
+            patch({ revision: Number(m.revision) || 0, savedAt: Date.now(), notice: '' });
+            break;
+          case 'save-rejected':
+            patch({ notice: m.reason === 'locked'
+              ? '잠긴 주차라 저장되지 않았습니다.'
+              : '문서가 갱신되어 저장이 거부되었습니다. 새로고침해주세요.' });
+            break;
+          case 'save-failed':
+            patch({ notice: '저장에 실패했습니다. 연결을 확인해주세요.' });
+            break;
+          case 'frozen':
+            patch({ notice: '잠금 확정 중입니다.' });
+            applyPermission({ frozen: true });
+            break;
+          case 'unfrozen':
+            patch({ notice: '' });
+            applyPermission({ frozen: false });
+            reconnect();
+            break;
+          case 'locked':
+            patch({ notice: '이 주차가 잠금 처리되었습니다.' });
+            applyPermission({ locked: true, frozen: false });
+            break;
+          case 'unlocked':
+            patch({ notice: '' });
+            applyPermission({ locked: false, frozen: false });
+            reconnect();
+            break;
+          case 'resynced':
+            patch({ revision: Number(m.revision) || 0 });
+            applyPermission({ locked: !!m.locked });
+            break;
+          case 'generation-changed':
+            patch({ notice: '문서가 복원되었습니다. 새로고침해주세요.' });
+            break;
+          case 'stale-room':
+            patch({ notice: '문서가 교체되었습니다. 새로고침해주세요.' });
+            applyPermission({ frozen: true });
+            break;
+        }
+      });
+
+      patch({
+        mode: 'realtime', legacyReason: '', doc, provider, origin, undo, localUser,
+        master: first.master, locked: first.isLocked, frozen: false,
+        readOnly: first.isLocked,
+        revision: first.revision, peers: readPeers()
+      });
+    })().catch(() => toLegacy('실시간 편집에 연결하지 못했습니다. 기존 방식으로 작성합니다.'));
+
+    return () => {
+      disposed = true;
+      undo?.destroy();
+      provider?.destroy();
+      doc?.destroy();
+      setState(initial);
+    };
+    // userName 은 접속 중 바뀌지 않는다 — 넣으면 이름 로딩 시점에 룸이 재연결된다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, year, weekNum, userId]);
+
+  return state;
+}
+
+/**
+ * Y.Doc 이 바뀔 때마다 다시 그리기 위한 구독.
+ *
+ * materialize 는 문서 전체를 훑으므로 키 입력마다 돌리면 큰 문서에서 눈에 띄게 느려진다.
+ * 애니메이션 프레임 단위로 묶어 한 번만 계산한다.
+ */
+export function useDocSnapshot<T>(doc: Y.Doc | null, read: (d: Y.Doc) => T, empty: T): T {
+  const [snapshot, setSnapshot] = useState<T>(empty);
+  const readRef = useRef(read);
+  readRef.current = read;
+
+  useEffect(() => {
+    if (!doc) { setSnapshot(empty); return; }
+    let queued = 0;
+    const recompute = () => {
+      queued = 0;
+      setSnapshot(readRef.current(doc));
+    };
+    const onChange = () => {
+      if (queued) return;
+      queued = requestAnimationFrame(recompute);
+    };
+    setSnapshot(readRef.current(doc));
+    doc.on('update', onChange);
+    return () => {
+      doc.off('update', onChange);
+      if (queued) cancelAnimationFrame(queued);
+    };
+    // empty 는 상수로 넘어온다 — 의존성에 넣으면 매 렌더 재구독한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc]);
+
+  return snapshot;
+}
+
+/**
+ * Y.Text 를 textarea/input 에 묶는다. **한글 조합 중에는 원격 변경을 화면에 반영하지 않는다** —
+ * 반영하면 조합이 깨져 글자가 튄다.
+ *
+ * 반영은 직전 로컬 값과의 차이만 계산해 넣는다. Y.Text 현재값과 비교하면
+ * 그 사이 상대가 앞에 끼워 넣은 글자가 "내가 지운 것"으로 계산돼 사라진다.
+ */
+export function useYTextBinding(ytext: Y.Text | null, origin?: unknown) {
+  const [value, setValue] = useState(() => ytext?.toString() ?? '');
+  const [tracked, setTracked] = useState(ytext);
+  const composing = useRef(false);
+  const valueRef = useRef(value);
+
+  if (tracked !== ytext) {
+    setTracked(ytext);
+    setValue(ytext?.toString() ?? '');
+  }
+
+  const commit = useCallback((v: string) => {
+    valueRef.current = v;
+    setValue(v);
+  }, []);
+
+  useEffect(() => {
+    if (!ytext) { valueRef.current = ''; return; }
+    const sync = () => { if (!composing.current) commit(ytext.toString()); };
+    ytext.observe(sync);
+    sync();
+    return () => ytext.unobserve(sync);
+  }, [ytext, commit]);
+
+  const push = useCallback((next: string) => {
+    const prev = valueRef.current;
+    commit(next);
+    if (!ytext || prev === next) return;
+
+    const { index, removed, added } = textDiff(prev, next);
+    const len = ytext.length;
+    const at = Math.min(index, len);
+    const del = Math.min(removed, len - at);
+    ytext.doc?.transact(() => {
+      if (del > 0) ytext.delete(at, del);
+      if (added) ytext.insert(at, added);
+    }, origin);
+  }, [ytext, commit, origin]);
+
+  const compositionProps = {
+    onCompositionStart: () => { composing.current = true; },
+    onCompositionEnd: () => {
+      composing.current = false;
+      if (ytext) commit(ytext.toString());
+    }
+  };
+
+  return { value, push, compositionProps };
+}
+
+const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
+
+/**
+ * 두 문자열의 변경 구간. **코드포인트 경계**를 지킨다.
+ * 코드유닛 단위로 자르면 이모지의 서로게이트 페어가 반쪽만 지워져
+ * 화면이 깨질 뿐 아니라 JSON 직렬화에서 요청 자체가 거부된다.
+ */
+export function textDiff(prev: string, next: string): { index: number; removed: number; added: string } {
+  let head = 0;
+  while (head < prev.length && head < next.length && prev[head] === next[head]) head++;
+  while (head > 0 && isLowSurrogate(next.charCodeAt(head))) head--;
+
+  let tail = 0;
+  while (
+    tail < prev.length - head && tail < next.length - head &&
+    prev[prev.length - 1 - tail] === next[next.length - 1 - tail]
+  ) tail++;
+  while (tail > 0 && isLowSurrogate(next.charCodeAt(next.length - tail))) tail--;
+
+  return { index: head, removed: prev.length - head - tail, added: next.slice(head, next.length - tail) };
+}
