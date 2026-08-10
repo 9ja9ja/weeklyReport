@@ -471,6 +471,110 @@ export function unmergeCells(
   }, origin);
 }
 
+// ── 프로그램에서 값을 통째로 넣을 때 ─────────────────────────
+//
+// 사람이 타이핑하는 경로가 아니다(그쪽은 Y.Text 를 직접 묶는다).
+// 전주차 복사·표 붙여넣기처럼 **의도적으로 통째 교체**하는 동작에만 쓴다.
+
+function setTextValue(t: unknown, v: string): void {
+  if (!(t instanceof Y.Text)) return;
+  if (t.toString() === v) return;
+  if (t.length > 0) t.delete(0, t.length);
+  if (v) t.insert(0, v);
+}
+
+export function setSubTextValue(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, v: string, origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    if (b instanceof Y.Map) setTextValue(b.get(BLOCK.subText), v);
+  }, origin);
+}
+
+export function setCaptionText(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, v: string, origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    if (b instanceof Y.Map) setTextValue(b.get(BLOCK.caption), v);
+  }, origin);
+}
+
+export function setBulletTextValue(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  bulletId: string, v: string, origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    const bullets = b instanceof Y.Map ? b.get(BLOCK.bullets) : null;
+    if (!(bullets instanceof Y.Map)) return;
+    const bm = bullets.get(bulletId);
+    if (bm instanceof Y.Map) setTextValue(bm.get(BLOCK.text), v);
+  }, origin);
+}
+
+/**
+ * 표 내용을 통째로 갈아엎는다 (외부 표 붙여넣기).
+ *
+ * 행·열 id 를 새로 만들기 때문에 같은 순간 남이 고치던 칸은 사라진다.
+ * 파괴적인 동작이라 화면에서 한 번 묻고 호출한다.
+ */
+export function replaceTableContent(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  headers: string[], rows: string[][], origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    if (!(b instanceof Y.Map)) return;
+
+    const colMap = new Y.Map();
+    const newColIds: string[] = [];
+    let prev: string | null = null;
+    headers.forEach(h => {
+      const id = generateId();
+      newColIds.push(id);
+      const cm = new Y.Map();
+      prev = generateKeyBetween(prev, null);
+      cm.set(BLOCK.order, prev);
+      cm.set(BLOCK.header, h ?? '');
+      colMap.set(id, cm);
+    });
+    b.set(BLOCK.cols, colMap);
+
+    const rowMap = new Y.Map();
+    const newRowIds: string[] = [];
+    prev = null;
+    rows.forEach(() => {
+      const id = generateId();
+      newRowIds.push(id);
+      const rm = new Y.Map();
+      prev = generateKeyBetween(prev, null);
+      rm.set(BLOCK.order, prev);
+      rowMap.set(id, rm);
+    });
+    b.set(BLOCK.rows, rowMap);
+
+    const cellMap = new Y.Map();
+    rows.forEach((row, ri) => (row ?? []).forEach((v, ci) => {
+      if (ci >= newColIds.length || !v) return;
+      cellMap.set(cellKey(newRowIds[ri], newColIds[ci]), v);
+    }));
+    b.set(BLOCK.cells, cellMap);
+
+    // 행·열이 전부 바뀌었으므로 기존 병합은 가리킬 곳이 없다
+    b.set(BLOCK.merges, new Y.Map());
+  }, origin);
+}
+
 // ── 인덱스 → id 래퍼 ─────────────────────────────────────────
 //
 // 화면은 행·열을 인덱스로 다루고 문서는 id 로 다룬다. 변환을 호출할 때마다 하면

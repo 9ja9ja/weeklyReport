@@ -344,32 +344,7 @@ async function maybeSnapshot(
 }
 
 /** 팀·주차가 공동 편집 대상인지 — 컷오버는 팀·주차 단위다 */
-export interface TeamCollabRange {
-  collabFromYear: number | null;
-  collabFromWeek: number | null;
-  collabUntilYear?: number | null;
-  collabUntilWeek?: number | null;
-}
-
-/** (연도, 주차) 비교 — 주차 숫자만 보면 연말·연초가 뒤집힌다 */
-function cmpWeek(aYear: number, aWeek: number, bYear: number, bWeek: number): number {
-  if (aYear !== bYear) return aYear < bYear ? -1 : 1;
-  if (aWeek !== bWeek) return aWeek < bWeek ? -1 : 1;
-  return 0;
-}
-
-export function isCollabWeek(team: TeamCollabRange, year: number, weekNum: number): boolean {
-  const { collabFromYear: fy, collabFromWeek: fw } = team;
-  if (fy == null || fw == null) return false;
-  if (cmpWeek(year, weekNum, fy, fw) < 0) return false;
-
-  // 끈 팀은 collabUntil 이 채워진다. 그 주차까지는 공동 편집으로 남고 이후만 기존 방식이다.
-  const uy = team.collabUntilYear ?? null;
-  const uw = team.collabUntilWeek ?? null;
-  if (uy != null && uw != null && cmpWeek(year, weekNum, uy, uw) > 0) return false;
-
-  return true;
-}
+export { isCollabWeek, type TeamCollabRange } from '../collabWeek';
 
 /**
  * 서버가 쓰는 환경 이름 — 프리뷰가 운영 문서를 건드리지 않게 하는 방어선.

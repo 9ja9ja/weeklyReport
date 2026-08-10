@@ -4,23 +4,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { getWeekNumber } from '@/lib/weekUtils';
+import { isCollabWeek, type TeamCollabRange } from '@/lib/collabWeek';
 import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 
-/** 이번 주차 기준으로 이 팀이 공동 편집인지 — 서버 isCollabWeek 와 같은 규칙 */
-function isCollabOn(t: {
-  collabFromYear?: number | null; collabFromWeek?: number | null;
-  collabUntilYear?: number | null; collabUntilWeek?: number | null;
-}): boolean {
-  if (t.collabFromYear == null || t.collabFromWeek == null) return false;
+/** 이번 주차 기준으로 이 팀이 공동 편집인지 */
+function isCollabOn(t: TeamCollabRange): boolean {
   const now = new Date();
-  const y = now.getFullYear();
-  const w = getWeekNumber(now);
-  const cmp = (ay: number, aw: number, by: number, bw: number) =>
-    ay !== by ? (ay < by ? -1 : 1) : aw !== bw ? (aw < bw ? -1 : 1) : 0;
-  if (cmp(y, w, t.collabFromYear, t.collabFromWeek) < 0) return false;
-  if (t.collabUntilYear != null && t.collabUntilWeek != null
-      && cmp(y, w, t.collabUntilYear, t.collabUntilWeek) > 0) return false;
-  return true;
+  return isCollabWeek(t, now.getFullYear(), getWeekNumber(now));
 }
 
 interface TeamInfo {

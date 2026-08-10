@@ -5,11 +5,13 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useHistory } from '@/lib/useHistory';
 import { getWeekNumber, getPrevWeek } from '@/lib/weekUtils';
 import { useUser } from '@/lib/UserContext';
-import {
-  type ContentBlock, type SubBlock, type TableBlock,
-  isTableBlock, generateId, createSubBlock, createTableBlock
-} from '@/lib/reportBlocks';
+import { type ContentBlock, type SubBlock, isTableBlock } from '@/lib/reportBlocks';
 import { TableBlockEditor, TableBlockView } from '@/components/TableBlock';
+import { useSharedDoc, useDocSnapshot } from '@/components/useSharedDoc';
+import { localWriteOps, sharedWriteOps, type WriteOps } from '@/components/writeOps';
+import YTextArea from '@/components/YTextArea';
+import { materialize } from '@/lib/realtime/materialize';
+import { isCollabWeek, type TeamCollabRange } from '@/lib/collabWeek';
 
 type CateData = { current: ContentBlock[], next: ContentBlock[] };
 type EditorState = Record<number, CateData>;
@@ -55,7 +57,7 @@ function WriteContent() {
 
   const categories = activeTeamId ? catsByTeam[activeTeamId] ?? [] : [];
   const majorList = activeTeamId ? majorsByTeam[activeTeamId] ?? [] : [];
-  const isLocked = activeTeamId ? lockByTeam[activeTeamId] ?? false : false;
+  const lockedByApi = activeTeamId ? lockByTeam[activeTeamId] ?? false : false;
 
   /** categoryId → teamId 역매핑 (저장 시 잠긴 팀 항목을 걸러내려고) */
   const teamOfCategory = (() => {
@@ -65,10 +67,29 @@ function WriteContent() {
   })();
 
   const [prevWeekData, setPrevWeekData] = useState<EditorState>({});
+  /** 화면 표시용 잠금 — 공동 편집 중에는 룸이 알려주는 값이 우선이다(남이 잠그면 즉시) */
   const { state: reportData, setState: setReportData, undo, redo, canUndo, canRedo, setInitialState } = useHistory<EditorState>({});
 
-  const dragSubRef = useRef<{ catId: number; type: 'current'|'next'; idx: number } | null>(null);
-  const dragBulletRef = useRef<{ catId: number; type: 'current'|'next'; subIdx: number; bulletIdx: number } | null>(null);
+  /** 팀별 공동 편집 구간 — 저장 시 공동 편집 팀을 빼내는 데 쓴다 */
+  const [collabByTeam, setCollabByTeam] = useState<Record<number, TeamCollabRange>>({});
+  const teamIsCollab = (tid: number) => {
+    const r = collabByTeam[tid];
+    return !!r && isCollabWeek(r, year, weekNum);
+  };
+
+  // 지금 보고 있는 탭의 공유 문서. 대상이 아니면 mode='legacy' 로 떨어져 기존 흐름이 그대로 돈다.
+  const rt = useSharedDoc(activeTeamId, year, weekNum, userId, userName);
+  const collab = rt.mode === 'realtime';
+  const EMPTY_STATE: EditorState = {};
+  const docState = useDocSnapshot(rt.doc, materialize, EMPTY_STATE) as EditorState;
+
+  /** 화면에 그릴 데이터 — 공동 편집이면 문서에서, 아니면 기존 상태에서 */
+  const blocksOf = (catId: number, side: 'current' | 'next'): ContentBlock[] =>
+    (collab ? docState[catId]?.[side] : reportData[catId]?.[side]) ?? [];
+
+  // 드래그는 id 로 잡는다 — 인덱스로 잡으면 끄는 동안 남이 항목을 추가했을 때 엉뚱한 게 옮겨진다
+  const dragSubRef = useRef<{ catId: number; type: 'current'|'next'; blockId: string } | null>(null);
+  const dragBulletRef = useRef<{ catId: number; type: 'current'|'next'; blockId: string; bulletId: string } | null>(null);
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
   const [dragOverBulletId, setDragOverBulletId] = useState<string | null>(null);
 
@@ -80,15 +101,21 @@ function WriteContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, teamId, year, weekNum, isHydrating]);
 
+  // 실행취소 단축키. 공동 편집에서는 화면 상태를 통째로 되돌리면 남이 방금 쓴 것까지 지우므로
+  // 내 변경만 되돌리는 UndoManager 를 쓴다.
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  const editableRef = useRef(false);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isLocked) return;
-      if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
-      if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+      if (!editableRef.current) return;
+      if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undoRef.current(); }
+      if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redoRef.current(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, isLocked]);
+  }, []);
 
   /** 소속 팀 전부의 분류를 한 번에 받아둔다 */
   const fetchAllTeamCategories = async () => {
@@ -106,6 +133,17 @@ function WriteContent() {
         return { tid, cats: Array.isArray(cd) ? cd : [], majors: Array.isArray(md) ? md : [] };
       })
     );
+
+    // 팀별 공동 편집 구간 — 저장 배치에서 공동 편집 팀을 빼야 한다
+    try {
+      const tRes = await fetch('/api/teams');
+      const tData = await tRes.json();
+      if (Array.isArray(tData)) {
+        const map: Record<number, TeamCollabRange> = {};
+        tData.forEach((t: TeamCollabRange & { id: number }) => { map[t.id] = t; });
+        setCollabByTeam(map);
+      }
+    } catch { }
 
     const nextCats: Record<number, Category[]> = {};
     const nextMajors: Record<number, MajorResponse[]> = {};
@@ -175,7 +213,11 @@ function WriteContent() {
       .map(k => parseInt(k, 10))
       .filter(catId => {
         const tid = teamOfCategory.get(catId);
-        return tid == null ? true : !lockByTeam[tid];
+        if (tid == null) return true;
+        // 공동 편집 팀은 문서가 알아서 저장한다. 여기 섞으면 서버가 요청 전체를 거부해
+        // 같이 보낸 개인 작성 팀까지 저장이 막힌다.
+        if (teamIsCollab(tid)) return false;
+        return !lockByTeam[tid];
       })
       .map(catId => ({
         categoryId: catId,
@@ -190,7 +232,23 @@ function WriteContent() {
     return teams.filter(t => ids.has(t.id));
   })();
 
-  const saveReport = () => {
+  const saveReport = async () => {
+    // 공동 편집 탭은 이미 자동 저장되고 있다. 버튼은 디바운스를 기다리지 않고 지금 반영시킨다.
+    if (collab) {
+      setSaving(true);
+      try {
+        const res = await fetch('/api/realtime/flush', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamId: activeTeamId, year, weekNum })
+        });
+        const d = await res.json().catch(() => null);
+        alert(res.ok ? '저장되었습니다.' : (d?.error ?? '저장에 실패했습니다.'));
+      } catch { alert('저장에 실패했습니다.'); }
+      finally { setSaving(false); }
+      return;
+    }
+
     const items = buildSaveItems();
     if (items.length === 0) {
       alert(isLocked ? '이 주차는 잠겨있어 저장할 수 없습니다.' : '저장할 내용이 없습니다.');
@@ -222,65 +280,59 @@ function WriteContent() {
     }
   };
 
-  // State Builders
-  const updateState = (catId: number, type: 'current'|'next', modifyFn: (list: ContentBlock[]) => ContentBlock[]) => {
-    if (isLocked) return;
-    setReportData(prev => {
-      const catData = prev[catId] ?? { current: [], next: [] };
-      return { ...prev, [catId]: { ...catData, [type]: modifyFn([...catData[type]]) } };
-    });
-  };
+  // ── 편집 연산 ──────────────────────────────────────────────
+  //
+  // 개인 작성과 공동 편집이 같은 인터페이스를 쓴다. 블록은 **id 로** 가리킨다 —
+  // 인덱스로 가리키면 공동 편집에서 남이 위에 항목을 추가한 순간 엉뚱한 블록을 고친다.
+  /** 지금 편집할 수 없는 상태인가 — 잠금, 또는 공동 편집에서 권한·동기화 미완 */
+  const readOnly = collab ? (rt.readOnly || !rt.synced) : lockedByApi;
 
-  /** index 위치가 SubBlock 일 때만 적용 (표 블록에는 소분류 연산이 없다) */
-  const updateSub = (catId: number, type: 'current'|'next', index: number, fn: (s: SubBlock) => SubBlock) =>
-    updateState(catId, type, list => {
-      const b = list[index];
-      if (!b || isTableBlock(b)) return list;
-      list[index] = fn(b);
-      return list;
-    });
+  const isLocked = collab ? rt.locked : lockedByApi;
 
-  const addSub = (catId: number, type: 'current'|'next') => updateState(catId, type, list => [...list, createSubBlock()]);
-  const addTable = (catId: number, type: 'current'|'next') =>
-    updateState(catId, type, list => [...list, createTableBlock()]);
-  const setTable = (catId: number, type: 'current'|'next', index: number, next: TableBlock) =>
-    updateState(catId, type, list => { list[index] = next; return list; });
+  // 지난주 참고본: 공동 편집으로 전환된 주차에는 개인 Report 가 없다.
+  // 그대로 두면 "지난주 작성본"이 전원 빈칸으로 보인다 — 팀 취합본(공유 문서의 미러)을 쓴다.
+  const [prevTeamData, setPrevTeamData] = useState<EditorState>({});
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const prev = getPrevWeek(year, weekNum);
+    const range = collabByTeam[activeTeamId];
+    if (!range || !isCollabWeek(range, prev.year, prev.weekNum)) { setPrevTeamData({}); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/reports/summary?teamId=${activeTeamId}&year=${prev.year}&weekNum=${prev.weekNum}`);
+        const d = await res.json();
+        if (alive) setPrevTeamData(d?.contents ? JSON.parse(d.contents) : {});
+      } catch { if (alive) setPrevTeamData({}); }
+    })();
+    return () => { alive = false; };
+  }, [activeTeamId, year, weekNum, collabByTeam]);
 
-  const setSubText = (catId: number, type: 'current'|'next', index: number, val: string) => updateSub(catId, type, index, s => ({ ...s, subText: val }));
-  const removeBlock = (catId: number, type: 'current'|'next', index: number) => updateState(catId, type, list => { list.splice(index, 1); return list; });
-  const reorderSub = (catId: number, type: 'current'|'next', fromIdx: number, toIdx: number) => {
-    if (fromIdx === toIdx) return;
-    updateState(catId, type, list => { const n = [...list]; const [it] = n.splice(fromIdx, 1); n.splice(toIdx, 0, it); return n; });
-  };
-  const addBullet = (catId: number, type: 'current'|'next', index: number) => updateSub(catId, type, index, s => ({ ...s, bullets: [...s.bullets, { id: generateId(), text: '' }] }));
-  const setBulletText = (catId: number, type: 'current'|'next', si: number, bi: number, val: string) => updateSub(catId, type, si, s => {
-    const nb = [...s.bullets]; nb[bi] = { ...nb[bi], text: val }; return { ...s, bullets: nb };
-  });
-  const removeBullet = (catId: number, type: 'current'|'next', si: number, bi: number) => updateSub(catId, type, si, s => {
-    const nb = [...s.bullets]; nb.splice(bi, 1); return { ...s, bullets: nb };
-  });
-  const reorderBullet = (catId: number, type: 'current'|'next', si: number, from: number, to: number) => {
-    if (from === to) return;
-    updateSub(catId, type, si, s => { const nb = [...s.bullets]; const [it] = nb.splice(from, 1); nb.splice(to, 0, it); return { ...s, bullets: nb }; });
-  };
+  /** 지난주 참고본 — 그 주차가 공동 편집이었으면 팀 문서, 아니면 내 개인 보고 */
+  const prevBlocksOf = (catId: number, side: 'current' | 'next'): ContentBlock[] =>
+    (prevTeamData[catId]?.[side] ?? prevWeekData[catId]?.[side]) ?? [];
+
+  undoRef.current = () => (collab ? rt.undo?.undo() : undo());
+  redoRef.current = () => (collab ? rt.undo?.redo() : redo());
+  editableRef.current = !readOnly;
+
+  const ops: WriteOps = collab && rt.doc
+    ? sharedWriteOps(
+        rt.doc, rt.origin, { authorId: userId ?? null, authorText: userName },
+        docState, rt.readOnly || !rt.synced
+      )
+    : localWriteOps(setReportData as (u: (p: EditorState) => EditorState) => void, isLocked);
 
   const copyCurrentToNext = (catId: number) => {
-    if (isLocked) return;
-    const currentBlocks = reportData[catId]?.current || [];
+    if (readOnly) return;
+    const currentBlocks = blocksOf(catId, 'current');
     if (currentBlocks.length === 0) return;
-    const existingNext = reportData[catId]?.next || [];
-    if (existingNext.length > 0 && !confirm('기존 차주 내용을 덮어씁니다. 계속하시겠습니까?')) return;
-    const copied: ContentBlock[] = currentBlocks.map(block =>
-      isTableBlock(block)
-        ? { ...block, id: generateId(), rows: block.rows.map(r => [...r]), headers: [...block.headers] }
-        : {
-            id: generateId(),
-            type: 'sub' as const,
-            subText: block.subText,
-            bullets: block.bullets.map(b => ({ id: generateId(), text: b.text }))
-          }
-    );
-    updateState(catId, 'next', () => copied);
+    const existingNext = blocksOf(catId, 'next');
+    const warn = collab
+      ? '기존 차주 내용을 덮어씁니다. 다른 팀원이 작성한 내용도 함께 사라집니다. 계속하시겠습니까?'
+      : '기존 차주 내용을 덮어씁니다. 계속하시겠습니까?';
+    if (existingNext.length > 0 && !confirm(warn)) return;
+    ops.copyCurrentToNext(catId, currentBlocks);
   };
 
   // textarea 높이 자동 조절 헬퍼
@@ -308,7 +360,7 @@ function WriteContent() {
   }, [loading]);
 
   const renderBlocks = (catId: number, type: 'current'|'next', blocks: ContentBlock[], isReadonly = false) => {
-    const ro = isReadonly || isLocked;
+    const ro = isReadonly || readOnly;
     if (!blocks || blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>내용 없음</span>;
 
     // 표 블록은 번호(①②③)를 매기지 않는다 — 서술 항목만 순번을 센다.
@@ -321,8 +373,9 @@ function WriteContent() {
           : <TableBlockEditor
               key={block.id}
               block={block}
-              onChange={next => setTable(catId, type, idx, next)}
-              onRemove={() => removeBlock(catId, type, idx)}
+              onChange={() => { /* ops 를 주므로 통째 교체 경로는 쓰이지 않는다 */ }}
+              ops={ops.tableOps(catId, type, block.id)}
+              onRemove={() => ops.removeBlock(catId, type, block.id)}
             />;
       }
       subSeq += 1;
@@ -333,12 +386,12 @@ function WriteContent() {
   const renderSubBlock = (catId: number, type: 'current'|'next', block: SubBlock, idx: number, seq: number, ro: boolean) => {
     return (
       <div key={block.id} draggable={!ro}
-        onDragStart={e => { e.stopPropagation(); dragSubRef.current = { catId, type, idx }; (e.currentTarget as HTMLElement).classList.add('dragging'); }}
+        onDragStart={e => { e.stopPropagation(); dragSubRef.current = { catId, type, blockId: block.id }; (e.currentTarget as HTMLElement).classList.add('dragging'); }}
         onDragEnd={e => { (e.currentTarget as HTMLElement).classList.remove('dragging'); setDragOverSubId(null); }}
         onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOverSubId(block.id); }}
         onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSubId(null); }}
-        onDrop={e => { e.preventDefault(); e.stopPropagation(); if (dragSubRef.current && dragSubRef.current.catId === catId && dragSubRef.current.type === type) reorderSub(catId, type, dragSubRef.current.idx, idx); dragSubRef.current = null; setDragOverSubId(null); }}
-        className={`drag-block${dragOverSubId === block.id && dragSubRef.current?.idx !== idx ? ' drag-over' : ''}`}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); const d = dragSubRef.current; if (d && d.catId === catId && d.type === type && d.blockId !== block.id) ops.moveBlock(catId, type, d.blockId, block.id); dragSubRef.current = null; setDragOverSubId(null); }}
+        className={`drag-block${dragOverSubId === block.id && dragSubRef.current?.blockId !== block.id ? ' drag-over' : ''}`}
         style={{ marginBottom: '0.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
           {!ro && <span className="drag-handle" title="드래그하여 순서 변경">⠿</span>}
@@ -346,34 +399,56 @@ function WriteContent() {
           {ro ? (
             <div style={{ flex: 1, padding: '0.4rem 0.2rem', fontWeight: 600, fontSize: '0.88rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: '34px' }}>{block.subText}</div>
           ) : (
-            <textarea value={block.subText} onChange={e => setSubText(catId, type, idx, e.target.value)} className="input-field" placeholder="소분류 내용을 입력하세요..." rows={1}
-              onInput={handleTextareaResize}
-              style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }} />
+            ops.collaborative ? (
+              <YTextArea
+                ytext={ops.subText(catId, type, block.id)}
+                origin={rt.origin}
+                readOnly={readOnly}
+                placeholder="소분류 내용을 입력하세요..."
+                className="input-field"
+                style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }}
+              />
+            ) : (
+              <textarea value={block.subText} onChange={e => ops.setSubText(catId, type, block.id, e.target.value)} className="input-field" placeholder="소분류 내용을 입력하세요..." rows={1}
+                onInput={handleTextareaResize}
+                style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }} />
+            )
           )}
           {!ro && <>
-            <button onClick={() => addBullet(catId, type, idx)} className="icon-btn add" title="항목 추가">+ 항목</button>
-            <button onClick={() => removeBlock(catId, type, idx)} className="icon-btn del" title="소분류 삭제">✕</button>
+            <button onClick={() => ops.addBullet(catId, type, block.id)} className="icon-btn add" title="항목 추가">+ 항목</button>
+            <button onClick={() => ops.removeBlock(catId, type, block.id)} className="icon-btn del" title="소분류 삭제">✕</button>
           </>}
         </div>
-        {block.bullets.map((bul, bid) => (
+        {block.bullets.map(bul => (
           <div key={bul.id} draggable={!ro}
-            onDragStart={e => { e.stopPropagation(); dragBulletRef.current = { catId, type, subIdx: idx, bulletIdx: bid }; (e.currentTarget as HTMLElement).classList.add('dragging'); }}
+            onDragStart={e => { e.stopPropagation(); dragBulletRef.current = { catId, type, blockId: block.id, bulletId: bul.id }; (e.currentTarget as HTMLElement).classList.add('dragging'); }}
             onDragEnd={e => { (e.currentTarget as HTMLElement).classList.remove('dragging'); setDragOverBulletId(null); }}
             onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOverBulletId(bul.id); }}
             onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverBulletId(null); }}
-            onDrop={e => { e.preventDefault(); e.stopPropagation(); if (dragBulletRef.current && dragBulletRef.current.catId === catId && dragBulletRef.current.type === type && dragBulletRef.current.subIdx === idx) reorderBullet(catId, type, idx, dragBulletRef.current.bulletIdx, bid); dragBulletRef.current = null; setDragOverBulletId(null); }}
-            className={`drag-block${dragOverBulletId === bul.id && dragBulletRef.current?.bulletIdx !== bid ? ' drag-over' : ''}`}
+            onDrop={e => { e.preventDefault(); e.stopPropagation(); const d = dragBulletRef.current; if (d && d.catId === catId && d.type === type && d.blockId === block.id && d.bulletId !== bul.id) ops.moveBullet(catId, type, block.id, d.bulletId, bul.id); dragBulletRef.current = null; setDragOverBulletId(null); }}
+            className={`drag-block${dragOverBulletId === bul.id && dragBulletRef.current?.bulletId !== bul.id ? ' drag-over' : ''}`}
             style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', paddingLeft: '1.8rem', marginTop: '0.2rem' }}>
             {!ro && <span className="drag-handle" style={{ fontSize: '0.75rem' }}>⠿</span>}
             <span style={{ fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0 }}>-</span>
             {ro ? (
               <div style={{ flex: 1, padding: '0.25rem 0.5rem', fontSize: '0.88rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: '30px' }}>{bul.text}</div>
             ) : (
-              <textarea value={bul.text} onChange={e => setBulletText(catId, type, idx, bid, e.target.value)} className="input-field" placeholder="내용을 입력하세요..." rows={1}
-                onInput={handleTextareaResize}
-                style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottomStyle: 'dashed', borderBottomWidth: '1px', fontSize: '0.88rem', resize: 'none', minHeight: '30px', overflow: 'hidden' }} />
+              ops.collaborative ? (
+                <YTextArea
+                  ytext={ops.bulletText(catId, type, block.id, bul.id)}
+                  origin={rt.origin}
+                  readOnly={readOnly}
+                  placeholder="내용을 입력하세요..."
+                  className="input-field"
+                  style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottomStyle: 'dashed', borderBottomWidth: '1px', fontSize: '0.88rem', resize: 'none', minHeight: '30px', overflow: 'hidden' }}
+                />
+              ) : (
+                <textarea value={bul.text} onChange={e => ops.setBulletText(catId, type, block.id, bul.id, e.target.value)} className="input-field" placeholder="내용을 입력하세요..." rows={1}
+                  onInput={handleTextareaResize}
+                  style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottomStyle: 'dashed', borderBottomWidth: '1px', fontSize: '0.88rem', resize: 'none', minHeight: '30px', overflow: 'hidden' }} />
+              )
             )}
-            {!ro && <button onClick={() => removeBullet(catId, type, idx, bid)} className="icon-btn del">✕</button>}
+            {!ro && <button onClick={() => ops.removeBullet(catId, type, block.id, bul.id)} className="icon-btn del">✕</button>}
           </div>
         ))}
       </div>
@@ -385,8 +460,8 @@ function WriteContent() {
   /** + 소분류 / + 표 버튼 묶음 */
   const AddBlockBar = ({ catId, type }: { catId: number; type: 'current'|'next' }) => (
     <div style={{ display: 'flex', gap: '0.4rem', marginTop: '1.5rem' }}>
-      <button onClick={() => addSub(catId, type)} className="btn" style={{ fontSize: '0.8rem', background: 'var(--btn-bg)', color: 'var(--foreground)', flex: 1 }}>+ 소분류 추가</button>
-      <button onClick={() => addTable(catId, type)} className="btn" style={{ fontSize: '0.8rem', background: 'var(--btn-bg)', color: 'var(--foreground)', width: '112px' }}>+ 표 추가</button>
+      <button onClick={() => ops.addSub(catId, type)} className="btn" style={{ fontSize: '0.8rem', background: 'var(--btn-bg)', color: 'var(--foreground)', flex: 1 }}>+ 소분류 추가</button>
+      <button onClick={() => ops.addTable(catId, type)} className="btn" style={{ fontSize: '0.8rem', background: 'var(--btn-bg)', color: 'var(--foreground)', width: '112px' }}>+ 표 추가</button>
     </div>
   );
 
@@ -476,6 +551,25 @@ function WriteContent() {
         </div>
       )}
 
+      {collab && (
+        <div className="brief-live-bar" style={{ marginBottom: '1rem' }}>
+          <span className={`brief-live-dot${rt.connected && rt.synced ? ' on' : ''}`} />
+          <span className="brief-live-label">
+            {!rt.connected ? '연결 중...' : !rt.synced ? '문서 받는 중...' : '팀원과 함께 작성 중'}
+          </span>
+          <div className="brief-peers">
+            {rt.peers.map(p => (
+              <span key={p.uid} className="brief-peer" style={{ borderColor: p.color, color: p.color }}>
+                {p.name || '익명'}
+              </span>
+            ))}
+          </div>
+          <span className="brief-live-saved">
+            {rt.notice || (rt.savedAt ? '자동 저장됨' : '')}
+          </span>
+        </div>
+      )}
+
       <div className="glass-panel write-header" style={{ padding: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
           <h2 style={{ marginBottom: '0.5rem' }}>{userName}님의 주간보고</h2>
@@ -485,10 +579,20 @@ function WriteContent() {
           </div>
         </div>
         <div className="write-actions" style={{ display: 'flex', gap: '1rem' }}>
-          <button onClick={undo} disabled={!canUndo} className="btn" style={{ fontSize: '0.9rem' }}>↶ 실행취소</button>
-          <button onClick={redo} disabled={!canRedo} className="btn" style={{ fontSize: '0.9rem' }}>↷ 다시실행</button>
+          {/* 공동 편집에서는 화면 상태를 통째로 되돌리면 남이 방금 쓴 것까지 지운다.
+              Y.UndoManager 가 내 변경만 되돌린다. */}
+          <button
+            onClick={() => (collab ? rt.undo?.undo() : undo())}
+            disabled={collab ? !rt.undo : !canUndo}
+            className="btn" style={{ fontSize: '0.9rem' }}
+          >↶ 실행취소</button>
+          <button
+            onClick={() => (collab ? rt.undo?.redo() : redo())}
+            disabled={collab ? !rt.undo : !canRedo}
+            className="btn" style={{ fontSize: '0.9rem' }}
+          >↷ 다시실행</button>
           <button className="btn btn-primary" onClick={saveReport} disabled={saving} style={{ padding: '0.8rem 2rem', fontSize: '1.1rem' }}>
-            {saving ? '저장중...' : teams.length > 1 ? '전체 저장' : '저장하기'}
+            {saving ? '저장중...' : collab ? '저장' : teams.length > 1 ? '전체 저장' : '저장하기'}
           </button>
         </div>
       </div>
@@ -499,10 +603,12 @@ function WriteContent() {
           {teams.map(t => {
             const active = t.id === activeTeamId;
             const locked = lockByTeam[t.id];
-            const edited = Object.keys(reportData).some(k => {
+            // 공동 편집 팀은 지금 보고 있는 탭만 문서가 열려 있다 — 그 탭은 문서 기준으로 센다
+            const source = t.id === activeTeamId && collab ? docState : reportData;
+            const edited = Object.keys(source).some(k => {
               const tid = teamOfCategory.get(parseInt(k, 10));
               if (tid !== t.id) return false;
-              const d = reportData[parseInt(k, 10)];
+              const d = source[parseInt(k, 10)];
               return (d?.current?.length ?? 0) > 0 || (d?.next?.length ?? 0) > 0;
             });
             return (
@@ -565,27 +671,27 @@ function WriteContent() {
                         <h4 style={{ color: 'var(--text-muted)', marginBottom: '1.2rem', fontWeight: 700, fontSize: '0.9rem', opacity: 0.7 }}>[지난 주 작성본]</h4>
                         <div style={{ marginBottom: '1.5rem' }}>
                           <h5 style={{ marginBottom: '1rem', fontSize: '0.95rem', borderLeft: '3px solid var(--border)', paddingLeft: '0.5rem' }}>금주 진행사항</h5>
-                          {renderBlocks(cat.id, 'current', prevWeekData[cat.id]?.current || [], true)}
+                          {renderBlocks(cat.id, 'current', prevBlocksOf(cat.id, 'current'), true)}
                         </div>
                         <div>
                           <h5 style={{ marginBottom: '1rem', fontSize: '0.95rem', borderLeft: '3px solid var(--border)', paddingLeft: '0.5rem' }}>차주 진행예정사항</h5>
-                          {renderBlocks(cat.id, 'next', prevWeekData[cat.id]?.next || [], true)}
+                          {renderBlocks(cat.id, 'next', prevBlocksOf(cat.id, 'next'), true)}
                         </div>
                       </div>
                       <div className="inner-box" style={{ borderTopColor: 'var(--primary)' }}>
                         <h4 style={{ color: 'var(--primary)', marginBottom: '1.2rem', fontWeight: 800, fontSize: '0.95rem' }}>[이번 주] 금주 진행사항</h4>
-                        {renderBlocks(cat.id, 'current', reportData[cat.id]?.current || [])}
-                        {!isLocked && <AddBlockBar catId={cat.id} type="current" />}
+                        {renderBlocks(cat.id, 'current', blocksOf(cat.id, 'current'))}
+                        {!readOnly && <AddBlockBar catId={cat.id} type="current" />}
                       </div>
                       <div className="inner-box" style={{ borderTopColor: 'var(--primary)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
                           <h4 style={{ color: 'var(--primary)', fontWeight: 800, fontSize: '0.95rem', margin: 0 }}>[이번 주] 차주 진행예정사항</h4>
-                          {!isLocked && (reportData[cat.id]?.current?.length ?? 0) > 0 && (
+                          {!readOnly && blocksOf(cat.id, 'current').length > 0 && (
                             <button onClick={() => copyCurrentToNext(cat.id)} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', background: 'var(--btn-bg)', color: 'var(--foreground)', border: '1px solid var(--border)' }}>📋 금주내용 복사</button>
                           )}
                         </div>
-                        {renderBlocks(cat.id, 'next', reportData[cat.id]?.next || [])}
-                        {!isLocked && <AddBlockBar catId={cat.id} type="next" />}
+                        {renderBlocks(cat.id, 'next', blocksOf(cat.id, 'next'))}
+                        {!readOnly && <AddBlockBar catId={cat.id} type="next" />}
                       </div>
                     </div>
                   </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useHistory } from '@/lib/useHistory';
 import { useUser } from '@/lib/UserContext';
+import { isCollabWeek } from '@/lib/collabWeek';
 import { getWeekNumber, getPrevWeek, getNextWeek } from '@/lib/weekUtils';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
@@ -51,6 +52,8 @@ export default function SummaryPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  /** 이 팀·주차가 공동 편집인가 */
+  const [collabWeek, setCollabWeek] = useState(false);
   const { isMasterOrAbove, userId: currentUserId, teamId } = useUser();
 
   const { state: aggregatedMap, setState: setAggregatedMap, undo, redo, canUndo, canRedo, setInitialState } = useHistory<EditorState>({});
@@ -64,7 +67,9 @@ export default function SummaryPage() {
   const [includeAuthor, setIncludeAuthor] = useState(true);
   const [teamUsers, setTeamUsers] = useState<{ id: number; name: string; role: string; hasReport: boolean; lastUpdated: string | null }[]>([]);
 
-  const isEditMode = isMasterOrAbove && !isLocked;
+  // 공동 편집 주차의 취합본은 공유 문서의 미러다. 여기서 고치면 룸의 다음 저장이
+  // 곧바로 되돌려 팀장이 다듬은 내용이 몇 초 뒤 사라진다. 조회·잠금만 남긴다.
+  const isEditMode = isMasterOrAbove && !isLocked && !collabWeek;
   const showCopyButtons = isLocked;
 
   // 파트 > 대분류 > 중분류 계층 (대분류 이름은 파트가 다르면 중복될 수 있음)
@@ -152,6 +157,13 @@ export default function SummaryPage() {
       setTeamUsers(myTeam?.users ?? []);
       const sumData = await sumRes.json();
       setIsLocked(sumData?.isLocked ?? false);
+
+      try {
+        const tRes = await fetch('/api/teams');
+        const tData = await tRes.json();
+        const t = Array.isArray(tData) ? tData.find((x: { id: number }) => x.id === teamId) : null;
+        setCollabWeek(!!t && isCollabWeek(t, year, weekNum));
+      } catch { setCollabWeek(false); }
       if (sumData?.contents) { setInitialState(JSON.parse(sumData.contents)); }
       else { setInitialState(await loadFromUsers()); }
       setCopyExclude({});
@@ -487,6 +499,11 @@ export default function SummaryPage() {
 
   return (
     <div className="glass-panel" style={{ padding: '2rem', marginTop: '2rem' }}>
+      {collabWeek && !isLocked && (
+        <div style={{ background: 'var(--primary-alpha-subtle)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.9rem 1.4rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
+          이 주차는 팀이 <strong>주간보고 화면에서 함께 작성</strong>합니다. 여기서는 조회와 잠금만 할 수 있습니다.
+        </div>
+      )}
       {isLocked && (
         <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.8rem 1.5rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 600, fontSize: '0.9rem' }}>
           🔒 이 주차의 취합본은 잠겨있습니다.
