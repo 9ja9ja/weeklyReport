@@ -7,7 +7,7 @@
  */
 import { NextResponse } from 'next/server';
 import { verifyServerRequest } from './token';
-import { serverSecret } from './secrets';
+import { serverSecret, isRealtimeConfigured } from './secrets';
 
 export const SIG_HEADER = 'x-realtime-signature';
 export const TS_HEADER = 'x-realtime-timestamp';
@@ -24,6 +24,16 @@ export interface ServerRequestResult<T> {
  * (JSON 을 다시 stringify 하면 키 순서·공백이 달라져 서명이 어긋난다).
  */
 export async function readSignedBody<T>(request: Request): Promise<ServerRequestResult<T>> {
+  // 미구성(시크릿 없음)은 장애가 아니다. 500 대신 503 으로 명확히 알린다.
+  if (!isRealtimeConfigured()) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: '실시간 기능이 아직 구성되지 않았습니다.' },
+        { status: 503 }
+      )
+    };
+  }
   const raw = await request.text();
   const ok = await verifyServerRequest(
     raw,

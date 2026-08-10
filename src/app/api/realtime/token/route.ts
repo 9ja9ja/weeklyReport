@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib/auth';
 import { currentEnvironment, isCollabWeek } from '@/lib/realtime/persist';
 import { signToken, roomName } from '@/lib/realtime/token';
-import { tokenSecret, TOKEN_TTL_SEC } from '@/lib/realtime/secrets';
+import { tokenSecret, TOKEN_TTL_SEC, isRealtimeConfigured } from '@/lib/realtime/secrets';
 import { ensureWeekDocument } from '@/lib/realtime/seed';
 
 /**
@@ -17,6 +17,11 @@ import { ensureWeekDocument } from '@/lib/realtime/seed';
 export async function GET(request: Request) {
   const me = await currentUserId();
   if (!me) return unauthorized();
+
+  // 시크릿이 없으면 토큰을 서명할 수 없다. 미구성과 장애를 구분해 알린다.
+  if (!isRealtimeConfigured()) {
+    return NextResponse.json({ error: '실시간 기능이 아직 구성되지 않았습니다.' }, { status: 503 });
+  }
 
   const { searchParams } = new URL(request.url);
   const teamId = Number(searchParams.get('teamId'));
