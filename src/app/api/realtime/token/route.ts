@@ -88,6 +88,7 @@ export async function GET(request: Request) {
   const payload = {
     uid: user.id,
     name: user.name,
+    kind: 'report' as const,
     env: environment,
     teamId, year, weekNum,
     gen: doc.docGeneration,

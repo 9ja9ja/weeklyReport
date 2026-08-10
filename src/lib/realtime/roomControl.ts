@@ -9,11 +9,12 @@
  * 이 호출은 "접속자에게 즉시 알리는" 최적화이며, 실패해도 최대 토큰 TTL 안에 수렴한다.
  */
 import { signServerRequest } from './token';
-import { serverSecret } from './secrets';
+import { serverSecret, isRealtimeConfigured } from './secrets';
 
 export type RoomCommand =
   | { type: 'freeze' }
   | { type: 'unfreeze' }
+  | { type: 'flush' }
   | { type: 'locked'; writeEpoch: number }
   | { type: 'unlocked'; writeEpoch: number }
   | { type: 'generation'; docGeneration: number }
@@ -39,6 +40,9 @@ export async function sendRoomCommand(
 ): Promise<RoomCallResult> {
   const host = realtimeHost();
   if (!host) return { ok: false, error: 'REALTIME_HOST 미설정 (실시간 통지 생략)' };
+  // 시크릿이 없으면 서명할 수 없다. serverSecret() 이 던지므로 여기서 먼저 걸러야
+  // 잠금 토글 같은 기존 기능이 500 으로 죽지 않는다.
+  if (!isRealtimeConfigured()) return { ok: false, error: '실시간 미구성 (통지 생략)' };
 
   const payload = JSON.stringify({ room, command });
   const { signature, timestamp } = await signServerRequest(payload, serverSecret());
@@ -88,4 +92,12 @@ export async function announceUnlocked(room: string, writeEpoch: number): Promis
 
 export async function unfreezeRoom(room: string): Promise<RoomCallResult> {
   return sendRoomCommand(room, { type: 'unfreeze' });
+}
+
+/**
+ * 즉시 저장. 디바운스(최대 6초)를 기다리지 않고 지금 DB 에 반영한다.
+ * 사용자가 [저장]을 눌렀을 때 쓴다 — 자동 저장이 있어도 눌러서 확인하고 싶어 한다.
+ */
+export async function flushRoom(room: string): Promise<RoomCallResult> {
+  return sendRoomCommand(room, { type: 'flush' });
 }

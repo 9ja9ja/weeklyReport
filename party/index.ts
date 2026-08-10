@@ -12,7 +12,10 @@
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver';
 import { YServer } from 'y-partyserver';
 import * as Y from 'yjs';
-import { verifyToken, signServerRequest, verifyServerRequest, parseRoomName, roomName } from '../src/lib/realtime/token';
+import {
+  verifyToken, signServerRequest, verifyServerRequest, parseRoomName, roomNameOf,
+  type RealtimeTokenPayload, type RoomKey
+} from '../src/lib/realtime/token';
 
 export interface Env {
   /** 사용자 접속 토큰 서명키 */
@@ -46,6 +49,19 @@ function base64ToBytes(s: string): Uint8Array {
   return out;
 }
 
+/**
+ * 토큰이 이 룸의 것인지 확인한다.
+ * 룸 이름은 누구나 추측할 수 있으므로, 토큰에 담긴 문서 좌표와 정확히 일치해야만 통과시킨다.
+ */
+function tokenMatchesRoom(claims: RealtimeTokenPayload, key: RoomKey | null): boolean {
+  if (!key) return false;
+  if (claims.kind !== key.kind) return false;
+  if (claims.env !== key.env) return false;
+  if (claims.year !== key.year || claims.weekNum !== key.weekNum || claims.gen !== key.gen) return false;
+  if (key.kind === 'report' && claims.teamId !== key.teamId) return false;
+  return true;
+}
+
 export class WeeklyRoom extends YServer<Env> {
   /** 저장 디바운스 — 짧게 둔다. DO 가 사라지면 되살릴 사본이 없다(스파이크 C1) */
   static callbackOptions = { debounceWait: 2000, debounceMaxWait: 6000 };
@@ -66,6 +82,18 @@ export class WeeklyRoom extends YServer<Env> {
   private pendingOrigin: Connection<ConnState> | null = null;
   /** update 구독을 한 번만 걸기 위한 표시 */
   private watchingUpdates = false;
+  /**
+   * 콜드스타트 때 받은 문서 식별자.
+   * DB 문서가 지워졌다 다시 만들어지면 세대·에폭이 1 로 되돌아가 fencing 이 통하지 않으므로,
+   * 저장할 때마다 이 값을 함께 보내 "같은 문서인지"를 서버가 확인하게 한다.
+   */
+  private seedId = '';
+  /**
+   * 마지막 성공 저장 이후 문서가 바뀌었는가.
+   * [저장] 버튼은 HTTP 로 언제든 부를 수 있는데, 변경이 없어도 매번 저장하면
+   * ydoc 디코드·HTML 재생성·revision 증가·영수증 삽입이 그대로 돌아 advisory lock 을 붙잡는다.
+   */
+  private dirtySinceSave = false;
 
   private get roomKey() {
     return parseRoomName(this.name);
@@ -81,9 +109,11 @@ export class WeeklyRoom extends YServer<Env> {
       throw new Error(`룸 초기 상태 로드 실패: ${res.status}`);
     }
     const data = res.data as {
-      ydoc: string; docGeneration: number; writeEpoch: number; revision: number; isLocked: boolean;
+      ydoc: string; docGeneration: number; writeEpoch: number; revision: number;
+      isLocked: boolean; seedId?: string;
     };
 
+    this.seedId = data.seedId ?? '';
     this.docGeneration = data.docGeneration;
     this.writeEpoch = data.writeEpoch;
     this.revision = data.revision;
@@ -104,6 +134,7 @@ export class WeeklyRoom extends YServer<Env> {
     if (this.watchingUpdates) return;
     this.watchingUpdates = true;
     this.document.on('update', () => {
+      this.dirtySinceSave = true;
       const st = this.pendingOrigin?.state;
       if (st) this.dirtyUserIds.add(st.uid);
     });
@@ -122,8 +153,14 @@ export class WeeklyRoom extends YServer<Env> {
    */
   private async flush(reason: 'debounce' | 'close' | 'lock' | 'manual'): Promise<boolean> {
     if (!this.loaded) return false;
-    const key = this.roomKey;
-    if (!key) return false;
+    // 룸 종류(report/brief)에 무관하게 같은 경로로 저장한다 —
+    // Next 의 /api/realtime/save 가 룸 이름을 보고 알아서 분기한다.
+    if (!this.roomKey) return false;
+    // 바뀐 게 없으면 저장하지 않는다. 잠금 확정(lock)은 상태를 확정해야 하므로 예외.
+    if (!this.dirtySinceSave && reason !== 'lock') {
+      this.broadcastControl({ type: 'saved', revision: this.revision, at: Date.now(), noop: true });
+      return true;
+    }
 
     const update = Y.encodeStateAsUpdate(this.document);
     const dirty = [...this.dirtyUserIds];
@@ -135,6 +172,7 @@ export class WeeklyRoom extends YServer<Env> {
       docGeneration: this.docGeneration,
       writeEpoch: this.writeEpoch,
       op: 'normal' as const,
+      seedId: this.seedId,
       dirtyUserIds: dirty
     };
 
@@ -154,11 +192,25 @@ export class WeeklyRoom extends YServer<Env> {
         }
         // ACK 성공 후에만 비운다. 먼저 비우면 저장 실패 시 작성 현황이 누락된다.
         for (const id of dirty) this.dirtyUserIds.delete(id);
+        this.dirtySinceSave = false;
         this.broadcastControl({ type: 'saved', revision: this.revision, at: Date.now() });
         return true;
       }
 
       const reasonCode = (res.data as { reason?: string } | null)?.reason;
+
+      // 문서가 사라졌거나(롤백으로 행 삭제) 다른 문서로 교체됐다(재시드).
+      // 이 룸의 Y.Doc 을 DB 에 얹으면 독립 생성된 두 문서가 병합돼 본문이 두 벌이 되고
+      // 제목은 한쪽이 사라진다. 재시도하지 말고 룸을 비운다 —
+      // 클라이언트는 새로고침해서 현재 문서로 다시 붙어야 한다.
+      if (reasonCode === 'not-found' || reasonCode === 'seed-mismatch' || reasonCode === 'cutover-off') {
+        this.broadcastControl({ type: 'stale-room', reason: reasonCode });
+        for (const c of this.getConnections<ConnState>()) {
+          c.close(4410, '문서가 교체되었습니다. 새로고침해주세요.');
+        }
+        return false;
+      }
+
       // 세대/잠금 불일치는 재시도해도 소용없다 — 클라이언트에 알리고 멈춘다
       if (reasonCode === 'generation-mismatch' || reasonCode === 'epoch-mismatch' || reasonCode === 'locked') {
         this.broadcastControl({ type: 'save-rejected', reason: reasonCode });
@@ -188,10 +240,8 @@ export class WeeklyRoom extends YServer<Env> {
       return;
     }
 
-    const key = this.roomKey;
     // 토큰이 가리키는 문서와 실제 룸이 같아야 한다. 룸 이름은 추측 가능하므로 여기서 막는다.
-    if (!key || claims.env !== key.env || claims.teamId !== key.teamId ||
-        claims.year !== key.year || claims.weekNum !== key.weekNum || claims.gen !== key.gen) {
+    if (!tokenMatchesRoom(claims, this.roomKey)) {
       connection.close(4403, '이 문서에 대한 토큰이 아닙니다.');
       return;
     }
@@ -277,10 +327,20 @@ export class WeeklyRoom extends YServer<Env> {
     );
     if (!ok) return Response.json({ error: '서명이 유효하지 않습니다.' }, { status: 401 });
 
-    let body: { command?: { type: string; writeEpoch?: number; docGeneration?: number; userIds?: number[] } };
+    let body: {
+      room?: string;
+      command?: { type: string; writeEpoch?: number; docGeneration?: number; userIds?: number[] };
+    };
+    // (freeze/flush 는 저장을 유발하므로 서명 검증을 통과한 요청에서만 도달한다)
     try { body = JSON.parse(raw); } catch { return Response.json({ error: 'bad body' }, { status: 400 }); }
     const cmd = body.command;
     if (!cmd?.type) return Response.json({ error: 'command 가 필요합니다.' }, { status: 400 });
+
+    // 서명은 본문에만 걸려 있고 라우팅은 URL 로 결정된다. 대조하지 않으면
+    // 한 번 확보한 서명을 URL 만 바꿔 다른 룸에 적용할 수 있다.
+    if (body.room !== this.name) {
+      return Response.json({ error: '룸이 일치하지 않습니다.' }, { status: 400 });
+    }
 
     switch (cmd.type) {
       case 'freeze': {
@@ -294,6 +354,12 @@ export class WeeklyRoom extends YServer<Env> {
         this.frozen = false;
         this.broadcastControl({ type: 'unfrozen' });
         return Response.json({ ok: true });
+
+      case 'flush': {
+        // 사용자가 [저장]을 눌렀다. 디바운스를 기다리지 않고 지금 반영한다.
+        const saved = await this.flush('manual');
+        return Response.json({ ok: saved, revision: this.revision, locked: this.locked });
+      }
 
       case 'locked':
         this.locked = true;
@@ -396,7 +462,7 @@ const handler = {
     const key = parseRoomName(room);
     // 정규화 왕복 — 선행 0 등으로 다른 문자열이 같은 키로 해석되면
     // 별개의 DO 가 같은 DB 행을 공유하게 된다
-    if (!key || roomName(key.env, key.teamId, key.year, key.weekNum, key.gen) !== room) {
+    if (!key || roomNameOf(key) !== room) {
       return new Response('Bad room', { status: 400 });
     }
 
@@ -417,15 +483,18 @@ const handler = {
       // 사용자 접속(WebSocket) — 토큰이 이 룸의 것인지 확인한 뒤에만 DO 를 깨운다
       const claims = await verifyToken(url.searchParams.get('token'), env.REALTIME_TOKEN_SECRET);
       if (!claims) return new Response('Unauthorized', { status: 401 });
-      if (claims.env !== key.env || claims.teamId !== key.teamId ||
-          claims.year !== key.year || claims.weekNum !== key.weekNum || claims.gen !== key.gen) {
-        return new Response('Forbidden', { status: 403 });
-      }
+      if (!tokenMatchesRoom(claims, key)) return new Response('Forbidden', { status: 403 });
     }
+
+    // partyserver 는 x-partykit-room / x-partykit-props 헤더를 신뢰한다.
+    // 지금은 idFromName 을 쓰므로 무시되지만, 호출자가 붙인 값을 그대로 넘길 이유가 없다.
+    const forwarded = new Request(request);
+    forwarded.headers.delete('x-partykit-room');
+    forwarded.headers.delete('x-partykit-props');
 
     const id = env.WeeklyRoom.idFromName(room);
     const stub = env.WeeklyRoom.get(id);
-    return stub.fetch(request);
+    return stub.fetch(forwarded);
   }
 };
 

@@ -1,24 +1,34 @@
 'use client';
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import { Table } from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableCell from '@tiptap/extension-table-cell';
-import TableHeader from '@tiptap/extension-table-header';
-import Underline from '@tiptap/extension-underline';
-import TextAlign from '@tiptap/extension-text-align';
-import { TextStyle } from '@tiptap/extension-text-style';
-import Color from '@tiptap/extension-color';
-import Highlight from '@tiptap/extension-highlight';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
-import { Extension } from '@tiptap/core';
+import { Extension, type Editor } from '@tiptap/core';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import type * as Y from 'yjs';
+import { briefExtensions, BRIEF_FRAGMENT } from '@/lib/realtime/briefSchema';
 
 interface Props {
   content: string;
   onChange: (html: string) => void;
   editable: boolean;
+  /**
+   * 실시간 공동 편집용 Y.Doc. 주면 본문의 진실원본이 이 문서가 되고,
+   * `content` prop 은 무시된다 (둘 다 반영하면 서로 덮어쓴다).
+   */
+  ydoc?: Y.Doc | null;
+  /** awareness 를 가진 provider — 원격 커서 표시용 */
+  provider?: { awareness: unknown } | null;
+  /**
+   * 원격 커서에 붙일 내 정보.
+   *
+   * CollaborationCaret 은 초기화 때 awareness 의 `user` 필드를 **이 값으로 통째로 덮어쓴다**.
+   * uid 를 빼먹으면 접속자 목록이 자기 자신까지 전부 걸러져 영원히 비어 보인다.
+   */
+  user?: { uid: number; name: string; color: string } | null;
+  /** 전주차 복사처럼 바깥에서 편집기를 조작해야 할 때 쓴다 */
+  onReady?: (editor: Editor | null) => void;
 }
 
 function cleanWordHtml(html: string): string {
@@ -91,68 +101,43 @@ const WordPaste = Extension.create({
   },
 });
 
-const CustomTableCell = TableCell.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      backgroundColor: {
-        default: null,
-        parseHTML: (el: HTMLElement) => el.style.backgroundColor || null,
-        renderHTML: (attrs: Record<string, string | null>) => {
-          if (!attrs.backgroundColor) return {};
-          return { style: `background-color: ${attrs.backgroundColor}` };
-        },
-      },
-    };
-  },
-});
+export default function BriefEditor({ content, onChange, editable, ydoc, provider, user, onReady }: Props) {
+  const collaborative = !!ydoc;
 
-const CustomTableHeader = TableHeader.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      backgroundColor: {
-        default: null,
-        parseHTML: (el: HTMLElement) => el.style.backgroundColor || null,
-        renderHTML: (attrs: Record<string, string | null>) => {
-          if (!attrs.backgroundColor) return {};
-          return { style: `background-color: ${attrs.backgroundColor}` };
-        },
-      },
-    };
-  },
-});
-
-export default function BriefEditor({ content, onChange, editable }: Props) {
   const editor = useEditor({
+    // 서버(HTML 변환)와 같은 확장 목록을 쓴다. 어긋나면 서버가 만든 HTML 에서
+    // 표·색상이 조용히 사라진다.
     extensions: [
-      StarterKit,
-      Underline,
-      TextStyle,
-      Color,
-      Highlight.configure({ multicolor: true }),
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Table.configure({ resizable: true }),
-      TableRow,
-      CustomTableHeader,
-      CustomTableCell,
+      ...briefExtensions({ collaborative }),
       WordPaste,
+      ...(ydoc ? [Collaboration.configure({ document: ydoc, field: BRIEF_FRAGMENT })] : []),
+      ...(ydoc && provider && user
+        ? [CollaborationCaret.configure({ provider, user })]
+        : []),
     ],
-    content,
+    // 공동 편집일 때 초기 content 를 주면 Yjs 문서와 합쳐져 내용이 두 벌이 된다
+    content: collaborative ? undefined : content,
     editable,
-    onUpdate: ({ editor: e }) => onChange(e.getHTML()),
-  });
+    immediatelyRender: false,
+    // 공동 편집일 때는 본문의 진실원본이 Y.Doc 이라 HTML 이 필요 없다.
+    // 그런데도 매 변경마다 getHTML() 을 돌리면 원격 타이핑 한 글자마다 표까지 통째로 직렬화된다.
+    onUpdate: collaborative ? undefined : ({ editor: e }) => onChange(e.getHTML()),
+  }, [collaborative, ydoc, provider, user]);
 
   useEffect(() => {
     if (!editor) return;
     editor.setEditable(editable);
   }, [editor, editable]);
 
+  useEffect(() => {
+    onReady?.(editor ?? null);
+  }, [editor, onReady]);
+
   const setContent = useCallback((html: string) => {
-    if (!editor) return;
+    if (!editor || collaborative) return;
     const cur = editor.getHTML();
     if (cur !== html) editor.commands.setContent(html, { emitUpdate: false });
-  }, [editor]);
+  }, [editor, collaborative]);
 
   useEffect(() => { setContent(content); }, [content, setContent]);
 

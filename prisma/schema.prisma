@@ -273,6 +273,51 @@ model DocActivity {
 
 // 저장 멱등성 — DB 커밋 후 ACK 만 유실되면 같은 update 가 재전송된다.
 // Yjs 내용은 중복되지 않지만 revision/스냅샷/활동기록이 다시 쌓이므로 영수증으로 막는다.
+// 요약본(Brief)의 공동 편집 문서.
+//
+// SharedDoc 과 분리한 이유: Brief 는 팀 구분이 없고(주차당 1개) 본문이 블록 JSON 이 아니라
+// TipTap HTML 이다. SharedDoc 의 유니크 키(teamId 포함)와 contents 계약(EditorState)에
+// 억지로 끼우면 양쪽 다 망가진다.
+//
+// 기존 Brief 테이블은 그대로 둔다 — html 을 계속 미러해 롤백 경로를 유지한다.
+model BriefDoc {
+  id          Int    @id @default(autoincrement())
+  environment String
+  year        Int
+  weekNum     Int
+
+  ydoc  Bytes // Y.encodeStateAsUpdate(doc)
+  html  String @default("") // 서버가 ydoc 에서 재계산한 본문 HTML
+  title String @default("")
+
+  docGeneration Int @default(1)
+  writeEpoch    Int @default(1)
+  revision      Int @default(0)
+
+  seedId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots BriefDocSnapshot[]
+
+  @@unique([environment, year, weekNum])
+}
+
+// 요약본 복구 지점. 광역 삭제·잠금 확정 시점을 되돌릴 수 있어야 한다 —
+// ydoc·html·Brief 미러가 한 트랜잭션에서 같이 비워지므로 이게 없으면 복구 수단이 0이다.
+model BriefDocSnapshot {
+  id            Int      @id @default(autoincrement())
+  docId         Int
+  doc           BriefDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  ydoc          Bytes
+  docGeneration Int
+  revision      Int
+  reason        String // "interval" | "lock" | "bulk-delete" | "pre-restore"
+  createdAt     DateTime @default(now())
+
+  @@index([docId, createdAt])
+}
+
 model PersistReceipt {
   requestId     String   @id
   revision      Int

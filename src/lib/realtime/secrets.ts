@@ -6,11 +6,12 @@
  */
 function requireSecret(name: string, value: string | undefined): string {
   if (value && value.length >= 16) return value;
-  if (process.env.NODE_ENV === 'production') {
-    // 운영에서 시크릿이 없으면 위조를 막을 수 없다. 통과시키느니 실패시킨다.
-    throw new Error(`${name} 환경변수가 설정되지 않았습니다.`);
-  }
-  return `dev-only-insecure-${name}-do-not-use-in-production`;
+  // 환경을 가리지 않고 실패시킨다.
+  //
+  // 예전에는 비운영에서 소스에 박힌 상수를 돌려줬는데, 그 값은 저장소를 볼 수 있는 누구나 아는
+  // 문자열이라 NODE_ENV 가 빠진 스테이징 한 대만 있어도 서버간 서명을 위조해
+  // 임의 문서의 ydoc 을 덤프하거나 덮어쓸 수 있었다. 실시간이 꺼지는 편이 낫다.
+  throw new Error(`${name} 환경변수가 설정되지 않았습니다.`);
 }
 
 /** 사용자 접속 토큰 서명키 */
@@ -26,11 +27,10 @@ export const serverSecret = () => requireSecret('REALTIME_SERVER_SECRET', proces
  * "아직 설정되지 않음"이다. 미구성과 장애를 구분해야 모니터링이 오해하지 않는다.
  */
 export function isRealtimeConfigured(): boolean {
-  if (process.env.NODE_ENV !== 'production') return true;   // 개발은 기본 시크릿으로 동작
-  return (
-    (process.env.REALTIME_TOKEN_SECRET?.length ?? 0) >= 16 &&
-    (process.env.REALTIME_SERVER_SECRET?.length ?? 0) >= 16
-  );
+  const token = process.env.REALTIME_TOKEN_SECRET ?? '';
+  const server = process.env.REALTIME_SERVER_SECRET ?? '';
+  // 두 값이 같으면 사용자 토큰으로 서버간 요청을 서명할 수 있게 된다 — 구성 오류로 본다.
+  return token.length >= 16 && server.length >= 16 && token !== server;
 }
 
 /** 접속 토큰 수명 — 접속 수립용이라 짧게 두고, provider 가 재접속마다 새로 받아간다 */

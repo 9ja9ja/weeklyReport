@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import * as Y from 'yjs';
 import { PrismaClient } from '@prisma/client';
 import { resolveTestDatabaseUrl } from './testDb';
-import { roomName, parseRoomName } from './token';
+import { roomName, parseRoomName, roomNameOf } from './token';
 
 const TEST_URL = resolveTestDatabaseUrl();
 const d = TEST_URL ? describe : describe.skip;
@@ -160,18 +160,17 @@ describe('환경·룸 이름 정규화', () => {
   });
 
   it('선행 0 이 붙은 룸 이름은 정규화 왕복에서 걸러진다', () => {
-    const weird = 'test-t1-2026-w032-g1';
+    const weird = 'test-report-t1-2026-w032-g1';
     const key = parseRoomName(weird);
     expect(key).not.toBeNull();
     // 파싱은 되지만 되돌리면 원문과 다르다 → 라우트가 거부해야 한다
-    expect(roomName(key!.env, key!.teamId, key!.year, key!.weekNum, key!.gen)).not.toBe(weird);
+    expect(roomNameOf(key!)).not.toBe(weird);
   });
 
   it('정상 룸 이름은 왕복이 항등이다', () => {
     for (const env of ['production', 'preview-feat', 'test']) {
       const n = roomName(env, 3, 2026, 32, 2);
-      const k = parseRoomName(n)!;
-      expect(roomName(k.env, k.teamId, k.year, k.weekNum, k.gen)).toBe(n);
+      expect(roomNameOf(parseRoomName(n)!)).toBe(n);
     }
   });
 });

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { readSignedBody, base64ToBytes } from '@/lib/realtime/serverAuth';
-import { parseRoomName, roomName } from '@/lib/realtime/token';
+import { parseRoomName, roomNameOf } from '@/lib/realtime/token';
 import { persistUpdate, currentEnvironment, type PersistOp } from '@/lib/realtime/persist';
+import { persistBriefUpdate } from '@/lib/realtime/briefPersist';
+import { isBriefCollabWeek } from '@/lib/realtime/briefCutover';
 
 /**
  * 룸 → DB 저장. **Worker 전용**(서버간 서명).
@@ -20,6 +22,8 @@ interface SaveBody {
   writeEpoch?: number;
   op?: PersistOp;
   dirtyUserIds?: number[];
+  /** 룸이 onLoad 에서 받은 문서 식별자 — 재시드된 다른 문서에 얹지 않기 위한 확인용 */
+  seedId?: string;
   snapshotReason?: 'lock' | 'bulk-delete' | 'pre-restore';
 }
 
@@ -35,7 +39,7 @@ export async function POST(request: Request) {
   if (!key) return NextResponse.json({ error: '룸 이름이 올바르지 않습니다.' }, { status: 400 });
 
   // 정규화 왕복 — 선행 0 등으로 다른 문자열이 같은 문서 키로 해석되면 안 된다
-  if (roomName(key.env, key.teamId, key.year, key.weekNum, key.gen) !== body.room) {
+  if (roomNameOf(key) !== body.room) {
     return NextResponse.json({ error: '정규화되지 않은 룸 이름입니다.' }, { status: 400 });
   }
   // 룸의 환경을 서버 환경에 고정한다 (SummaryData 미러에는 environment 구분이 없다)
@@ -62,6 +66,31 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (key.kind === 'brief') {
+      // 컷오버를 끄면 레거시 저장(POST /api/briefs)이 다시 열린다.
+      // 그 상태에서 살아 있는 룸이 계속 저장하면 두 경로가 같은 행을 번갈아 덮어써
+      // 방금 누른 [저장]이 몇 초 뒤 조용히 사라진다. 룸 쪽을 끊는다.
+      if (!isBriefCollabWeek(key.year, key.weekNum)) {
+        return NextResponse.json({ ok: false, reason: 'cutover-off' }, { status: 409 });
+      }
+      const briefResult = await persistBriefUpdate({
+        environment: key.env,
+        year: key.year,
+        weekNum: key.weekNum,
+        update: base64ToBytes(body.ydoc),
+        requestId: body.requestId,
+        docGeneration: key.gen,
+        writeEpoch: body.writeEpoch,
+        op,
+        expectedSeedId: body.seedId,
+        actorUserId: Array.isArray(body.dirtyUserIds) ? body.dirtyUserIds.find(Number.isInteger) : undefined
+      });
+      if (!briefResult.ok) {
+        return NextResponse.json(briefResult, { status: briefResult.reason === 'busy' ? 503 : 409 });
+      }
+      return NextResponse.json(briefResult, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const result = await persistUpdate({
       environment: key.env,
       teamId: key.teamId,

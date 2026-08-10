@@ -19,8 +19,10 @@ export interface RealtimeTokenPayload {
   uid: number;
   name: string;
   /** 접속 대상 문서 */
+  kind: DocKind;
   env: string;
-  teamId: number;
+  /** report 만 해당. brief 는 팀 구분이 없다 */
+  teamId?: number;
   year: number;
   weekNum: number;
   /** 룸 세대 — 복원되면 올라가고 클라이언트는 새 룸으로 옮겨야 한다 */
@@ -125,25 +127,66 @@ export async function verifyServerRequest(
 // ── 룸 이름 ─────────────────────────────────────────────────
 
 /**
- * 룸 이름에 환경과 세대를 넣는다.
+ * 문서 종류.
+ * - report: 주간보고 본문. 팀·주차당 1개, 블록 구조(SubBlock/TableBlock)
+ * - brief:  요약본. 주차당 1개(팀 없음), 리치텍스트 HTML
+ * 저장소·변환 규칙이 서로 달라 룸 이름에 종류를 박아 라우팅한다.
+ */
+export type DocKind = 'report' | 'brief';
+
+export type RoomKey =
+  | { kind: 'report'; env: string; teamId: number; year: number; weekNum: number; gen: number }
+  | { kind: 'brief'; env: string; year: number; weekNum: number; gen: number };
+
+const safeEnv = (env: string) => env.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+/**
+ * 룸 이름에 환경·종류·세대를 넣는다.
  * - 환경: 프리뷰 배포가 운영 룸에 들어가 실제 보고를 편집하는 사고를 막는다
  * - 세대: 복원하면 세대가 올라가 구 문서를 든 클라이언트가 자연히 새 룸으로 옮겨간다
  * Durable Object 이름으로 쓰이므로 안전한 문자만 남긴다.
  */
 export function roomName(env: string, teamId: number, year: number, weekNum: number, gen: number): string {
-  const safeEnv = env.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `${safeEnv}-t${teamId}-${year}-w${weekNum}-g${gen}`;
+  return `${safeEnv(env)}-report-t${teamId}-${year}-w${weekNum}-g${gen}`;
 }
 
-/** 룸 이름을 되돌린다. 형식이 어긋나면 null */
-export function parseRoomName(name: string): { env: string; teamId: number; year: number; weekNum: number; gen: number } | null {
-  const m = /^(.+)-t(\d+)-(\d+)-w(\d+)-g(\d+)$/.exec(name);
-  if (!m) return null;
-  return {
-    env: m[1],
-    teamId: Number(m[2]),
-    year: Number(m[3]),
-    weekNum: Number(m[4]),
-    gen: Number(m[5])
-  };
+/** 요약본 룸 — 팀 구분이 없다 */
+export function briefRoomName(env: string, year: number, weekNum: number, gen: number): string {
+  return `${safeEnv(env)}-brief-${year}-w${weekNum}-g${gen}`;
+}
+
+/** RoomKey 로부터 룸 이름을 다시 만든다 (정규화 왕복 검증용) */
+export function roomNameOf(key: RoomKey): string {
+  return key.kind === 'report'
+    ? roomName(key.env, key.teamId, key.year, key.weekNum, key.gen)
+    : briefRoomName(key.env, key.year, key.weekNum, key.gen);
+}
+
+/**
+ * 룸 이름을 되돌린다. 형식이 어긋나면 null.
+ * env 에 '-' 가 들어갈 수 있으므로(preview-브랜치) 종류 토큰으로 경계를 잡는다.
+ */
+export function parseRoomName(name: string): RoomKey | null {
+  const rep = /^(.+)-report-t(\d+)-(\d+)-w(\d+)-g(\d+)$/.exec(name);
+  if (rep) {
+    return {
+      kind: 'report',
+      env: rep[1],
+      teamId: Number(rep[2]),
+      year: Number(rep[3]),
+      weekNum: Number(rep[4]),
+      gen: Number(rep[5])
+    };
+  }
+  const br = /^(.+)-brief-(\d+)-w(\d+)-g(\d+)$/.exec(name);
+  if (br) {
+    return {
+      kind: 'brief',
+      env: br[1],
+      year: Number(br[2]),
+      weekNum: Number(br[3]),
+      gen: Number(br[4])
+    };
+  }
+  return null;
 }

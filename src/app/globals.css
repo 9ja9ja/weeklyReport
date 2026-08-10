@@ -667,6 +667,42 @@ select.input-field option {
   border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
 }
 
+/* ===== 실시간 공동 편집 상태 바 ===== */
+.brief-live-bar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.4rem 0.75rem; margin-bottom: 0.75rem;
+  background: var(--inner-bg); border: 1px solid var(--border); border-radius: 6px;
+  font-size: 0.8rem;
+}
+.brief-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none;
+}
+.brief-live-dot.on { background: #22c55e; }
+.brief-live-label { color: var(--text-muted); }
+.brief-peers { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.brief-peer {
+  padding: 0.1rem 0.45rem; border: 1px solid; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.brief-live-saved { margin-left: auto; color: var(--text-muted); }
+
+/* 다른 사람 커서 — y-prosemirror 가 붙이는 클래스 */
+.brief-editor-content .collaboration-carets__caret {
+  position: relative; border-left: 1px solid; border-right: 1px solid;
+  margin-left: -1px; margin-right: -1px; word-break: normal; pointer-events: none;
+}
+.brief-editor-content .collaboration-carets__label {
+  position: absolute; top: -1.4em; left: -1px;
+  padding: 0.05rem 0.3rem; border-radius: 3px 3px 3px 0;
+  font-size: 0.65rem; font-weight: 600; line-height: normal;
+  color: #fff; white-space: nowrap; user-select: none;
+}
+/* 선택 영역 클래스는 y-tiptap 의 기본 빌더가 붙이는 이름이다 */
+.brief-editor-content .ProseMirror-yjs-selection {
+  /* 선택 영역이 글자를 덮지 않게 */
+  mix-blend-mode: multiply; pointer-events: none;
+}
+
 /* ===== TipTap Editor — Google Docs / MS Office style ===== */
 .brief-toolbar {
   display: flex; flex-wrap: wrap; gap: 2px; align-items: center;

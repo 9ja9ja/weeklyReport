@@ -12,7 +12,7 @@ const SECRET = 'test-secret-at-least-16-chars-long';
 const OTHER = 'another-secret-at-least-16-chars';
 
 const payload = (over: Partial<RealtimeTokenPayload> = {}): RealtimeTokenPayload => ({
-  uid: 7, name: '방수진', env: 'test', teamId: 3, year: 2026, weekNum: 32,
+  uid: 7, name: '방수진', kind: 'report', env: 'test', teamId: 3, year: 2026, weekNum: 32,
   gen: 1, readOnly: false, master: false,
   exp: Math.floor(Date.now() / 1000) + 600,
   ...over
@@ -127,14 +127,16 @@ describe('서버간 요청 서명', () => {
 describe('룸 이름', () => {
   it('환경·팀·주차·세대를 담고 되돌릴 수 있다', () => {
     const n = roomName('production', 3, 2026, 32, 1);
-    expect(n).toBe('production-t3-2026-w32-g1');
-    expect(parseRoomName(n)).toEqual({ env: 'production', teamId: 3, year: 2026, weekNum: 32, gen: 1 });
+    expect(n).toBe('production-report-t3-2026-w32-g1');
+    expect(parseRoomName(n)).toEqual({ kind: 'report', env: 'production', teamId: 3, year: 2026, weekNum: 32, gen: 1 });
   });
 
   it('프리뷰 브랜치 이름의 특수문자를 안전하게 바꾼다', () => {
     const n = roomName('preview:feat/실시간', 1, 2026, 1, 2);
     expect(n).toMatch(/^[a-zA-Z0-9_-]+-t1-2026-w1-g2$/);
-    expect(parseRoomName(n)?.teamId).toBe(1);
+    const k = parseRoomName(n);
+    expect(k?.kind).toBe('report');
+    if (k?.kind === 'report') expect(k.teamId).toBe(1);
   });
 
   it('세대가 다르면 다른 룸이다 — 복원 시 클라이언트가 옮겨간다', () => {
@@ -146,7 +148,7 @@ describe('룸 이름', () => {
   });
 
   it('형식이 어긋나면 null', () => {
-    for (const bad of ['', 'nope', 't3-2026-w32-g1', 'env-t3-2026-w32']) {
+    for (const bad of ['', 'nope', 't3-2026-w32-g1', 'env-report-t3-2026-w32']) {
       expect(parseRoomName(bad)).toBeNull();
     }
   });
