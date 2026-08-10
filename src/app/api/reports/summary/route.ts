@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { isCollabWeek } from '@/lib/realtime/persist';
 import { requireTeamMaster, currentUserId, unauthorized } from '@/lib/auth';
 
 export async function GET(request: Request) {
@@ -38,6 +39,22 @@ export async function POST(request: Request) {
 
     const lock = await prisma.summaryLock.findUnique({ where: { teamId_year_weekNum: { teamId, year, weekNum } } });
     if (lock?.isLocked) return NextResponse.json({ error: '잠금 상태에서는 저장할 수 없습니다.' }, { status: 403 });
+
+    // 공동 편집 주차의 취합본은 공유 문서의 미러다. 여기로 직접 쓰면 룸의 다음 저장이
+    // 곧바로 되돌려버려, 팀장이 다듬은 내용이 몇 초 뒤 조용히 사라진다.
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
+      select: {
+        collabFromYear: true, collabFromWeek: true,
+        collabUntilYear: true, collabUntilWeek: true
+      }
+    });
+    if (team && isCollabWeek(team, year, weekNum)) {
+      return NextResponse.json(
+        { error: '이 주차는 팀이 함께 작성합니다. 주간보고 화면에서 편집해주세요.', collab: true },
+        { status: 409 }
+      );
+    }
 
     const result = await prisma.summaryData.upsert({
       where: { teamId_year_weekNum: { teamId, year, weekNum } },

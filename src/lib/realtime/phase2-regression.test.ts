@@ -45,6 +45,9 @@ d('Phase 2 회귀 (실제 Postgres)', () => {
     await prisma.sharedDoc.deleteMany();
     await prisma.summaryData.deleteMany();
     await prisma.summaryLock.deleteMany();
+    // Category 를 참조하는 ReportItem 이 남아 있으면 외래키에 걸린다
+    await prisma.reportItem.deleteMany();
+    await prisma.report.deleteMany();
     await prisma.category.deleteMany();
     await prisma.majorCategory.deleteMany();
     await prisma.part.deleteMany();

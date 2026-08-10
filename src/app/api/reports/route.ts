@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { isCollabWeek } from '@/lib/realtime/persist';
 import { regenerateSummary } from '@/lib/summaryGenerator';
 import { currentUserId, unauthorized, forbidden, requireTeamAccess as canAccessTeam, requireTeamMaster } from '@/lib/auth';
 
@@ -90,6 +91,30 @@ export async function POST(request: Request) {
       where: { year, weekNum, teamId: { in: affectedTeamIds }, isLocked: true }
     });
     if (locks.length > 0) return NextResponse.json({ error: '이 주차는 잠겨있어 저장할 수 없습니다.' }, { status: 403 });
+
+    // 공동 편집으로 전환한 팀·주차는 이 경로로 저장하지 않는다.
+    //
+    // 여기를 막지 않으면 오래 열어둔 탭의 [저장] 한 번이 개인 Report 를 쓰고,
+    // 그 뒤 regenerateSummary 가 **개인 보고만으로 취합본을 다시 만들어**
+    // 팀이 함께 작성한 내용을 통째로 덮어쓴다. 되돌릴 방법이 없는 유실이다.
+    const collabTeams = await prisma.team.findMany({
+      where: { id: { in: affectedTeamIds } },
+      select: {
+        id: true, name: true,
+        collabFromYear: true, collabFromWeek: true,
+        collabUntilYear: true, collabUntilWeek: true
+      }
+    });
+    const blocked = collabTeams.filter(t => isCollabWeek(t, year, weekNum));
+    if (blocked.length > 0) {
+      return NextResponse.json(
+        {
+          error: `${blocked.map(t => t.name).join(', ')} 팀은 이 주차를 함께 작성합니다. 새로고침 후 작성해주세요.`,
+          collab: true
+        },
+        { status: 409 }
+      );
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const report = await tx.report.upsert({

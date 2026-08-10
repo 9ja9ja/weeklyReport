@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { getWeekNumber } from '@/lib/weekUtils';
+import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 
 /** 이번 주차 기준으로 이 팀이 공동 편집인지 — 서버 isCollabWeek 와 같은 규칙 */
 function isCollabOn(t: {
@@ -330,12 +331,21 @@ export default function SettingsPage() {
                 const on = isCollabOn(t);
                 return (
                   <label
-                    title={on
-                      ? '팀원이 하나의 주간보고 문서를 함께 작성합니다.'
-                      : '팀원이 각자 작성하고 팀장이 취합합니다.'}
+                    title={
+                      !on && !COLLAB_WRITE_READY
+                        ? '주간보고 작성 화면이 공동 편집으로 바뀐 뒤에 켤 수 있습니다.'
+                        : on
+                          ? '팀원이 하나의 주간보고 문서를 함께 작성합니다.'
+                          : '팀원이 각자 작성하고 팀장이 취합합니다.'
+                    }
                     style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', flexShrink: 0 }}
                   >
-                    <input type="checkbox" checked={on} onChange={e => toggleCollab(t, e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      disabled={!on && !COLLAB_WRITE_READY}
+                      onChange={e => toggleCollab(t, e.target.checked)}
+                    />
                     <span style={{ fontSize: '0.78rem', color: on ? 'var(--primary)' : 'var(--text-muted)', fontWeight: on ? 700 : 400 }}>
                       함께 작성
                     </span>

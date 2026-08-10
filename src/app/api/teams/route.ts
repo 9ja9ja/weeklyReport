@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { getPrevWeek, getWeekNumber } from '@/lib/weekUtils';
+import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 
 export async function GET(request: Request) {
   try {
@@ -132,6 +133,13 @@ export async function PATCH(request: Request) {
     // 클라이언트가 주차를 지정하게 두면 지난 주차를 임의로 공동 편집으로 바꿔
     // 확정된 취합본이 재생성 대상이 될 수 있다.
     if (collab === true || collab === false) {
+      // 끄기는 항상 허용한다. 잘못 켠 상태에서 빠져나올 길까지 막으면 안 된다.
+      if (collab && !COLLAB_WRITE_READY) {
+        return NextResponse.json(
+          { error: '주간보고 작성 화면이 아직 공동 편집으로 바뀌지 않았습니다. 지금 켜면 팀원이 저장할 수 없습니다.' },
+          { status: 409 }
+        );
+      }
       const now = new Date();
       const cur = { year: now.getFullYear(), weekNum: getWeekNumber(now) };
       const team = await prisma.team.findUnique({
