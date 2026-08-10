@@ -33,6 +33,8 @@ export default function Navigation() {
         {canViewOverview && <Link href="/brief" onClick={closeMenu}>요약본</Link>}
         {canViewOverview && <Link href="/schedule" onClick={closeMenu}>일정보고</Link>}
         {canViewOverview && <Link href="/pnl" onClick={closeMenu}>손익보고</Link>}
+        {/* 임원도 불편한 점은 남길 수 있어야 한다 — 조회 전용 계정도 포함 */}
+        {userId && <Link href="/improvements" onClick={closeMenu}>개선요청</Link>}
         {/* 일반 팀원도 대분류를 직접 관리하므로 설정 진입이 필요하다 (마스터 전용 섹션은 화면 안에서 가려진다) */}
         {userId && !isExecutive && <Link href="/settings" onClick={closeMenu} style={{ color: 'var(--primary)' }}>설정</Link>}
         {userId && (

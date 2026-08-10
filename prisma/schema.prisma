@@ -52,6 +52,10 @@ model User {
   userTeams     UserTeam[]
   docActivities DocActivity[]
 
+  improvements         Improvement[]        @relation("improvementAuthor")
+  improvementAssigned  Improvement[]        @relation("improvementAssignee")
+  improvementComments  ImprovementComment[] @relation("improvementComment")
+
   @@unique([teamId, name])
 }
 
@@ -376,4 +380,47 @@ model PnlCategory {
   note String @default("") // "※ ..." 각주
 
   @@index([reportId])
+}
+
+/// 개선요청 게시판 — 사용자가 직접 올리고 진행 상태를 따라가는 곳.
+/// QC 서비스의 이슈 보드를 이 서비스 규모에 맞게 줄여 가져왔다:
+/// 번호·구분·상태·담당자·코멘트 스레드까지는 같고, 영역별 작업분배·검증 단계는 뺐다.
+model Improvement {
+  id      Int    @id @default(autoincrement())
+  /// 화면 표시용 연속 번호 (REQ-12). id 를 그대로 쓰면 삭제 후 번호가 튄다.
+  seq     Int    @unique
+  title   String
+  content String @default("")
+  /// 구분 — 작성 / 취합 / 조회 / 요약본 / 기타
+  category String @default("기타")
+  /// open | in_progress | done | hold | rejected
+  status  String @default("open")
+
+  createdBy Int
+  author    User @relation("improvementAuthor", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  assigneeId Int?
+  assignee   User? @relation("improvementAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  comments ImprovementComment[]
+
+  @@index([status, createdAt])
+}
+
+model ImprovementComment {
+  id            Int         @id @default(autoincrement())
+  improvementId Int
+  improvement   Improvement @relation(fields: [improvementId], references: [id], onDelete: Cascade)
+  authorId      Int
+  author        User        @relation("improvementComment", fields: [authorId], references: [id], onDelete: Cascade)
+  /// 사람이 쓴 글이면 body, 상태 변경 기록이면 type='status' 와 함께 요약이 들어간다
+  body String
+  type String @default("comment")
+  createdAt DateTime @default(now())
+
+  @@index([improvementId, createdAt])
 }
