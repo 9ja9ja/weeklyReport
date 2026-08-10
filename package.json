@@ -29,10 +29,12 @@
     "bcryptjs": "^3.0.3",
     "fractional-indexing": "^4.0.0",
     "next": "16.2.1",
+    "partyserver": "^0.5.10",
     "pm2": "^6.0.14",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "uuid": "^13.0.0",
+    "y-partyserver": "^2.2.0",
     "yjs": "^13.6.32"
   },
   "devDependencies": {
@@ -44,6 +46,10 @@
     "eslint-config-next": "16.2.1",
     "prisma": "^5.21.1",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.120.0"
+  },
+  "overrides": {
+    "@cloudflare/workers-types": "^4.20260424.1"
   }
 }

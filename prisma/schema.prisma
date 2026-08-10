@@ -274,9 +274,14 @@ model DocActivity {
 // 저장 멱등성 — DB 커밋 후 ACK 만 유실되면 같은 update 가 재전송된다.
 // Yjs 내용은 중복되지 않지만 revision/스냅샷/활동기록이 다시 쌓이므로 영수증으로 막는다.
 model PersistReceipt {
-  requestId String   @id
-  revision  Int
-  createdAt DateTime @default(now())
+  requestId     String   @id
+  revision      Int
+  // 기록 시점의 세대. 멱등 분기는 이 값을 돌려줘야 한다 —
+  // '현재' 세대를 돌려주면 구세대를 든 클라이언트가 재전송만으로 최신 세대를 받아가
+  // fencing 을 우회한다.
+  docGeneration Int      @default(1)
+  writeEpoch    Int      @default(1)
+  createdAt     DateTime @default(now())
 
   @@index([createdAt])
 }

@@ -53,6 +53,8 @@ CREATE TABLE "DocActivity" (
 CREATE TABLE "PersistReceipt" (
     "requestId" TEXT NOT NULL,
     "revision" INTEGER NOT NULL,
+    "docGeneration" INTEGER NOT NULL DEFAULT 1,
+    "writeEpoch" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "PersistReceipt_pkey" PRIMARY KEY ("requestId")

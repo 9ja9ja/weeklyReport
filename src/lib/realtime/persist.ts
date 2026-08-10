@@ -107,15 +107,20 @@ export async function persistUpdate(input: PersistInput): Promise<PersistResult>
     const scopedRequestId = `${environment}:${teamId}:${year}:${weekNum}:${requestId}`;
     const receipt = await tx.persistReceipt.findUnique({ where: { requestId: scopedRequestId } });
     if (receipt) {
-      const cur = await tx.sharedDoc.findUnique({
-        where: { environment_teamId_year_weekNum: { environment, teamId, year, weekNum } },
-        select: { docGeneration: true, writeEpoch: true }
-      });
+      // 기록 시점의 세대를 그대로 돌려준다. '현재' 세대를 주면 구세대를 든 클라이언트가
+      // 재전송만으로 최신 세대 값을 받아가 fencing 을 우회한다.
+      // 요청이 든 세대가 영수증과 다르면(그 사이 잠금·복원이 있었다) 실패로 알린다.
+      if (input.docGeneration !== undefined && input.docGeneration !== receipt.docGeneration) {
+        return { ok: false as const, reason: 'generation-mismatch' as const, revision: receipt.revision };
+      }
+      if (input.writeEpoch !== undefined && input.writeEpoch !== receipt.writeEpoch) {
+        return { ok: false as const, reason: 'epoch-mismatch' as const, revision: receipt.revision };
+      }
       return {
         ok: true as const,
         revision: receipt.revision,
-        docGeneration: cur?.docGeneration ?? 1,
-        writeEpoch: cur?.writeEpoch ?? 1,
+        docGeneration: receipt.docGeneration,
+        writeEpoch: receipt.writeEpoch,
         deduped: true
       };
     }
@@ -146,9 +151,16 @@ export async function persistUpdate(input: PersistInput): Promise<PersistResult>
           revision: 1
         }
       });
-      await mirrorSummary(tx, environment, teamId, year, weekNum, created.contents, false, 'seed');
+      // seed 는 미러하지 않는다. 새로 만든 문서(이월분 또는 빈 문서)로 기존 SummaryData 를
+      // 덮으면 그 주차의 확정 취합본이 사라진다. 미러는 실제 편집이 반영될 때만 의미가 있다.
+      // (백필은 runBackfill 이 별도 규칙으로 처리한다)
       await touchActivity(tx, environment, teamId, year, weekNum, dirtyUserIds);
-      await tx.persistReceipt.create({ data: { requestId: scopedRequestId, revision: created.revision } });
+      await tx.persistReceipt.create({
+        data: {
+          requestId: scopedRequestId, revision: created.revision,
+          docGeneration: created.docGeneration, writeEpoch: created.writeEpoch
+        }
+      });
       await writeSnapshot(tx, created.id, created.ydoc, created.docGeneration, created.revision, 'interval');
       await sweepReceipts(tx);
       return {
@@ -219,7 +231,12 @@ export async function persistUpdate(input: PersistInput): Promise<PersistResult>
 
     await mirrorSummary(tx, environment, teamId, year, weekNum, contents, lock?.isLocked === true, op);
     await touchActivity(tx, environment, teamId, year, weekNum, dirtyUserIds);
-    await tx.persistReceipt.create({ data: { requestId: scopedRequestId, revision: nextRevision } });
+    await tx.persistReceipt.create({
+      data: {
+        requestId: scopedRequestId, revision: nextRevision,
+        docGeneration: updated.docGeneration, writeEpoch: updated.writeEpoch
+      }
+    });
     await maybeSnapshot(tx, updated.id, ydoc, updated.docGeneration, nextRevision, snapshotReason);
     await sweepReceipts(tx);
 
@@ -345,11 +362,16 @@ export function isCollabWeek(
  * 같은 SharedDoc 행을 공유해 서로의 문서를 편집하게 된다. 브랜치까지 붙여 갈라준다.
  */
 export function currentEnvironment(): string {
-  if (process.env.REALTIME_ENV) return process.env.REALTIME_ENV;
-  const vercel = process.env.VERCEL_ENV;
-  if (!vercel) return 'development';
-  if (vercel !== 'preview') return vercel;
-  const branch = process.env.VERCEL_GIT_COMMIT_REF;
-  return branch ? `preview:${branch}` : 'preview';
+  const raw = (() => {
+    if (process.env.REALTIME_ENV) return process.env.REALTIME_ENV;
+    const vercel = process.env.VERCEL_ENV;
+    if (!vercel) return 'development';
+    if (vercel !== 'preview') return vercel;
+    const branch = process.env.VERCEL_GIT_COMMIT_REF;
+    return branch ? `preview-${branch}` : 'preview';
+  })();
+  // 룸 이름에 그대로 들어가므로 여기서 정규화한다.
+  // roomName() 이 뒤늦게 치환하면 토큰의 env 와 룸의 env 가 달라져 접속이 전부 막힌다.
+  return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 

@@ -1,0 +1,4 @@
+# wrangler dev 용 로컬 시크릿 (이 파일을 .dev.vars 로 복사해 쓴다 — .dev.vars 는 커밋 금지)
+REALTIME_TOKEN_SECRET=dev-only-token-secret-at-least-16
+REALTIME_SERVER_SECRET=dev-only-server-secret-at-least-16
+NEXT_APP_URL=http://127.0.0.1:3000

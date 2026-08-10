@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [
+      "@cloudflare/workers-types"
+    ],
+    "noEmit": true,
+    "jsx": "preserve"
+  },
+  "include": [
+    "./**/*.ts",
+    "../src/lib/realtime/token.ts"
+  ],
+  "exclude": [
+    "../node_modules"
+  ]
+}

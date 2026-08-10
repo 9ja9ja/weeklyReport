@@ -1,0 +1,27 @@
+# 실시간 공동 편집 Worker (Cloudflare)
+#
+# Next 앱(Vercel)과는 별도로 배포한다.
+#   개발: npx wrangler dev
+#   배포: npx wrangler deploy
+#
+# 시크릿은 코드에 두지 않는다:
+#   npx wrangler secret put REALTIME_TOKEN_SECRET
+#   npx wrangler secret put REALTIME_SERVER_SECRET
+name = "weekly-report-realtime"
+main = "party/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "WeeklyRoom"
+class_name = "WeeklyRoom"
+
+# Durable Object 는 마이그레이션 선언이 필요하다.
+# SQLite 백엔드는 무료 플랜에서도 쓸 수 있다.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WeeklyRoom"]
+
+[vars]
+# 배포 시 실제 앱 주소로 바꾼다. 로컬은 .dev.vars 에서 덮어쓴다.
+NEXT_APP_URL = "http://127.0.0.1:3000"

@@ -99,12 +99,23 @@ d('persistUpdate (실제 Postgres)', () => {
     expect(mirror).toBeNull();
   });
 
-  it('운영 환경에서는 SummaryData 미러를 같은 트랜잭션에서 함께 쓴다 (롤백 경로 유지)', async () => {
+  it('운영 환경에서 실제 편집이 저장되면 SummaryData 미러를 함께 쓴다 (롤백 경로 유지)', async () => {
     const prodBase = { environment: 'production', teamId, year: TEAM.year, weekNum: TEAM.weekNum };
     const doc = buildDocFromState(SEED_STATE, { teamId, ...TEAM, seedId: 'seed-prod' });
-    const res = await persistUpdate({
+
+    // 시드 자체는 미러하지 않는다 — 새 문서로 기존 확정 취합본을 덮으면 안 되기 때문
+    await persistUpdate({
       ...prodBase, update: updateOf(doc), requestId: nextRequestId(),
       op: 'seed', seedId: 'seed-prod'
+    });
+    expect(await prisma.summaryData.findUnique({
+      where: { teamId_year_weekNum: { teamId, ...TEAM } }
+    })).toBeNull();
+
+    // 실제 편집(normal)이 들어오면 그때 미러한다
+    const res = await persistUpdate({
+      ...prodBase, update: updateOf(doc), requestId: nextRequestId(),
+      op: 'normal', docGeneration: 1, writeEpoch: 1
     });
     expect(res.ok).toBe(true);
 
