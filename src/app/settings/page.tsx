@@ -177,6 +177,20 @@ export default function SettingsPage() {
     await post('/api/users', { targetUserId: targetId, role: newRole }, 'PATCH');
     reload();
   };
+  /**
+   * 최고관리자 지정·해제 (최고관리자 전용).
+   * 마지막 한 명을 해제하거나 본인 권한을 스스로 내리는 것은 서버가 막는다 —
+   * 그렇게 되면 설정을 열 수 있는 계정이 하나도 남지 않는다.
+   */
+  const toggleSuperAdmin = async (targetId: number, name: string, currentRole: string) => {
+    const next = currentRole === 'superAdmin' ? 'user' : 'superAdmin';
+    if (!confirm(next === 'superAdmin'
+      ? `${name}님을 최고관리자로 지정하시겠습니까?\n\n모든 팀의 팀·팀원·분류 설정과 권한 변경을 할 수 있게 됩니다.`
+      : `${name}님의 최고관리자 권한을 해제하시겠습니까?\n\n일반 사용자로 바뀌며, 필요하면 관리자로 다시 지정할 수 있습니다.`)) return;
+    const res = await post('/api/users', { targetUserId: targetId, role: next }, 'PATCH');
+    if (!res.ok) { alert((await res.json()).error); return; }
+    reload();
+  };
   const toggleExecutive = async (targetId: number, currentRole: string) => {
     const newRole = currentRole === 'executive' ? 'user' : 'executive';
     if (targetId === userId) { alert('본인의 권한은 변경할 수 없습니다.'); return; }
@@ -409,6 +423,12 @@ export default function SettingsPage() {
                     <button onClick={() => changeRole(user.id, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)', borderColor: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)' }}
                       disabled={user.id === userId && user.role === 'teamMaster'}>
                       {user.role === 'teamMaster' ? '관리자 해제' : '관리자 지정'}
+                    </button>
+                  )}
+                  {/* 최고관리자 지정·해제 — 최고관리자만. 본인 것은 스스로 못 내린다(잠김 방지) */}
+                  {isSuperAdmin && user.role !== 'executive' && user.id !== userId && (
+                    <button onClick={() => toggleSuperAdmin(user.id, user.name, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#dc2626', borderColor: '#dc2626' }}>
+                      {user.role === 'superAdmin' ? '최고관리자 해제' : '최고관리자 지정'}
                     </button>
                   )}
                   {isSuperAdmin && user.role !== 'superAdmin' && user.id !== userId && (

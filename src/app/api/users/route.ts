@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireTeamMaster, requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { compareMembers } from '@/lib/roles';
+import { roleChangeError } from '@/lib/roleChange';
 import bcrypt from 'bcryptjs';
 
 export async function GET(request: Request) {
@@ -176,17 +177,22 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // 역할 변경
-    if (typeof role === 'string') {
-      // superAdmin / executive 설정은 superAdmin만 가능
-      if (role === 'superAdmin' || role === 'executive') {
-        if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자만 가능합니다.' }, { status: 403 });
-      } else {
-        if (!await requireTeamMaster(me, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
-      }
-      // 자기 자신의 권한 해제 방지
-      if (me === targetUserId && target.role !== 'user' && role === 'user') {
-        return NextResponse.json({ error: '본인의 권한은 해제할 수 없습니다.' }, { status: 400 });
+    // 역할 변경 — 판단은 roleChange 한곳에 모아 둔다(잠금 사고를 막는 규칙들)
+    if (role !== undefined) {
+      const superAdmin = await requireSuperAdmin(me);
+      const err = roleChangeError({
+        actorId: me,
+        actorIsSuperAdmin: superAdmin,
+        target: { id: target.id, role: target.role },
+        nextRole: role,
+        // 대상까지 포함한 수. 마지막 한 명을 푸는지 여기서 가린다.
+        superAdminCount: await prisma.user.count({ where: { role: 'superAdmin', isActive: true } })
+      });
+      if (err) return NextResponse.json({ error: err }, { status: superAdmin ? 400 : 403 });
+
+      // 최고관리자가 아니면 대상 팀의 관리자여야 한다 (자기 팀 팀원만 다룰 수 있게)
+      if (!superAdmin && !await requireTeamMaster(me, target.teamId)) {
+        return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
       }
       await prisma.user.update({ where: { id: targetUserId }, data: { role } });
       return NextResponse.json({ success: true });
