@@ -3,12 +3,13 @@
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useHistory } from '@/lib/useHistory';
-import { getWeekNumber, getPrevWeek } from '@/lib/weekUtils';
+import { getPrevWeek, getDefaultWeek } from '@/lib/weekUtils';
 import { useUser } from '@/lib/UserContext';
 import { type ContentBlock, type SubBlock, isTableBlock } from '@/lib/reportBlocks';
 import { TableBlockEditor, TableBlockView } from '@/components/TableBlock';
 import { useSharedDoc, useDocSnapshot } from '@/components/useSharedDoc';
 import { localWriteOps, sharedWriteOps, type WriteOps } from '@/components/writeOps';
+import { usePresence, PART } from '@/components/usePresence';
 import YTextArea from '@/components/YTextArea';
 import { materialize } from '@/lib/realtime/materialize';
 import { isCollabWeek, type TeamCollabRange } from '@/lib/collabWeek';
@@ -42,8 +43,10 @@ function WriteContent() {
   // (URL 의 userId/name 은 무시한다 — 예전에는 이 값으로 남의 보고를 열 수 있었다)
   const { userId, userName, teamId, teams, isHydrating } = useUser();
 
-  const [year, setYear] = useState(paramYear ? parseInt(paramYear, 10) : new Date().getFullYear());
-  const [weekNum, setWeekNum] = useState(paramWeek ? parseInt(paramWeek, 10) : getWeekNumber(new Date()));
+  // 월·화는 지난주(전주 마감), 수~일은 이번주를 기본으로 연다
+  const defaultWeek = getDefaultWeek();
+  const [year, setYear] = useState(paramYear ? parseInt(paramYear, 10) : defaultWeek.year);
+  const [weekNum, setWeekNum] = useState(paramWeek ? parseInt(paramWeek, 10) : defaultWeek.weekNum);
 
   // 겸직 지원: 소속 팀 전부의 분류를 미리 받아두고, 탭으로 전환하며 한 번에 저장한다.
   const [activeTeamId, setActiveTeamId] = useState<number | null>(null);
@@ -82,6 +85,9 @@ function WriteContent() {
   const collab = rt.mode === 'realtime';
   const EMPTY_STATE: EditorState = {};
   const docState = useDocSnapshot(rt.doc, materialize, EMPTY_STATE) as EditorState;
+
+  /** 누가 어느 칸을 쓰고 있는지 — 그 칸에 테두리와 이름표가 붙는다 */
+  const presence = usePresence(rt.provider, collab);
 
   /** 화면에 그릴 데이터 — 공동 편집이면 문서에서, 아니면 기존 상태에서 */
   const blocksOf = (catId: number, side: 'current' | 'next'): ContentBlock[] =>
@@ -402,6 +408,7 @@ function WriteContent() {
               block={block}
               onChange={() => { /* ops 를 주므로 통째 교체 경로는 쓰이지 않는다 */ }}
               ops={ops.tableOps(catId, type, block.id)}
+              presence={ops.collaborative ? presence.block(catId, type, block.id) : undefined}
               onRemove={() => ops.removeBlock(catId, type, block.id)}
             />;
       }
@@ -411,6 +418,8 @@ function WriteContent() {
   };
 
   const renderSubBlock = (catId: number, type: 'current'|'next', block: SubBlock, idx: number, seq: number, ro: boolean) => {
+    // 공동 편집일 때만 편집 위치를 주고받는다
+    const bp = ops.collaborative ? presence.block(catId, type, block.id) : null;
     return (
       <div key={block.id} draggable={!ro}
         onDragStart={e => { e.stopPropagation(); dragSubRef.current = { catId, type, blockId: block.id }; (e.currentTarget as HTMLElement).classList.add('dragging'); }}
@@ -431,6 +440,8 @@ function WriteContent() {
                 ytext={ops.subText(catId, type, block.id)}
                 origin={rt.origin}
                 readOnly={readOnly}
+                peers={bp?.peers(PART.sub)}
+                {...bp?.focusProps(PART.sub)}
                 placeholder="소분류 내용을 입력하세요..."
                 className="input-field"
                 style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }}
@@ -465,6 +476,8 @@ function WriteContent() {
                   ytext={ops.bulletText(catId, type, block.id, bul.id)}
                   origin={rt.origin}
                   readOnly={readOnly}
+                  peers={bp?.peers(PART.bullet(bul.id))}
+                  {...bp?.focusProps(PART.bullet(bul.id))}
                   placeholder="내용을 입력하세요..."
                   className="input-field"
                   style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottomStyle: 'dashed', borderBottomWidth: '1px', fontSize: '0.88rem', resize: 'none', minHeight: '30px', overflow: 'hidden' }}

@@ -128,7 +128,7 @@ export async function PATCH(request: Request) {
   try {
     const me = await currentUserId();
     if (!me) return unauthorized();
-    const { targetUserId, role, resetPassword } = await request.json();
+    const { targetUserId, role, position, resetPassword } = await request.json();
 
     const target = await prisma.user.findUnique({ where: { id: targetUserId } });
     if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -154,6 +154,18 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: '본인의 권한은 해제할 수 없습니다.' }, { status: 400 });
       }
       await prisma.user.update({ where: { id: targetUserId }, data: { role } });
+      return NextResponse.json({ success: true });
+    }
+
+    // 직급 — 임원 계정은 이 값이 곧 화면 호칭이 된다(대표 등). 그래서 임원·최고관리자
+    // 대상의 직급은 최고관리자만 바꾼다. 나머지는 소속 팀 관리자면 된다.
+    if (typeof position === 'string') {
+      const privileged = target.role === 'superAdmin' || target.role === 'executive';
+      const ok = privileged ? await requireSuperAdmin(me) : await requireTeamMaster(me, target.teamId);
+      if (!ok) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+      const v = position.trim();
+      if (v.length > 20) return NextResponse.json({ error: '직급은 20자 이내로 입력해주세요.' }, { status: 400 });
+      await prisma.user.update({ where: { id: targetUserId }, data: { position: v } });
       return NextResponse.json({ success: true });
     }
 

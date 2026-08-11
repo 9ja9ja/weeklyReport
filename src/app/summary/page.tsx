@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useHistory } from '@/lib/useHistory';
 import { useUser } from '@/lib/UserContext';
 import { isCollabWeek } from '@/lib/collabWeek';
-import { getWeekNumber, getPrevWeek, getNextWeek } from '@/lib/weekUtils';
+import { getNextWeek, getDefaultWeek } from '@/lib/weekUtils';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
   isTableBlock, generateId, createSubBlock, createTableBlock,
@@ -44,7 +44,8 @@ interface ReportItem {
 }
 
 export default function SummaryPage() {
-  const defaultWeek = getPrevWeek(new Date().getFullYear(), getWeekNumber(new Date()));
+  // 월·화는 지난주, 수~일은 이번주로 연다
+  const defaultWeek = getDefaultWeek();
   const [year, setYear] = useState(defaultWeek.year);
   const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [categories, setCategories] = useState<Category[]>([]);

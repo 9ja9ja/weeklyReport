@@ -9,7 +9,8 @@
  */
 import { useLayoutEffect, useRef } from 'react';
 import type * as Y from 'yjs';
-import { useYTextBinding } from './useSharedDoc';
+import { useYTextBinding, type DocPeer } from './useSharedDoc';
+import PeerField from './PeerField';
 
 interface Props {
   ytext: Y.Text | null;
@@ -18,9 +19,17 @@ interface Props {
   placeholder?: string;
   className?: string;
   style?: React.CSSProperties;
+  /** 지금 이 칸을 쓰고 있는 다른 사람들 */
+  peers?: DocPeer[];
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
-export default function YTextArea({ ytext, origin, readOnly, placeholder, className, style }: Props) {
+const NO_PEERS: DocPeer[] = [];
+
+export default function YTextArea({
+  ytext, origin, readOnly, placeholder, className, style, peers = NO_PEERS, onFocus, onBlur
+}: Props) {
   const { value, push, compositionProps } = useYTextBinding(ytext, origin);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -32,17 +41,25 @@ export default function YTextArea({ ytext, origin, readOnly, placeholder, classN
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
 
+  // 이름표를 얹으려면 감싸야 하는데, 감싼 상자가 원래 textarea 자리를 대신해야 한다.
+  // flex 값만 상자로 옮기고 나머지 모양은 그대로 둔다.
+  const { flex, ...textStyle } = style ?? {};
+
   return (
-    <textarea
-      ref={ref}
-      rows={1}
-      value={value}
-      readOnly={readOnly}
-      onChange={e => { if (!readOnly) push(e.target.value); }}
-      {...compositionProps}
-      placeholder={placeholder}
-      className={className}
-      style={style}
-    />
+    <PeerField peers={peers} style={{ flex, minWidth: 0 }}>
+      <textarea
+        ref={ref}
+        rows={1}
+        value={value}
+        readOnly={readOnly}
+        onChange={e => { if (!readOnly) push(e.target.value); }}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        {...compositionProps}
+        placeholder={placeholder}
+        className={className}
+        style={{ ...textStyle, width: '100%' }}
+      />
+    </PeerField>
   );
 }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber, getWeekRange, getPrevWeek, getNextWeek, formatDateShort } from '@/lib/weekUtils';
+import { getWeekRange, getNextWeek, getDefaultWeek, formatDateShort } from '@/lib/weekUtils';
 import { type ContentBlock, isTableBlock, tableToHtml, tableToText } from '@/lib/reportBlocks';
 import { TableBlockView } from '@/components/TableBlock';
 
@@ -29,7 +29,8 @@ export default function OverviewPage() {
   const router = useRouter();
 
   const now = new Date();
-  const defaultWeek = getPrevWeek(now.getFullYear(), getWeekNumber(now));
+  // 월·화는 지난주, 수~일은 이번주로 연다
+  const defaultWeek = getDefaultWeek(now);
   const [year, setYear] = useState(defaultWeek.year);
   const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [teams, setTeams] = useState<OvTeam[]>([]);

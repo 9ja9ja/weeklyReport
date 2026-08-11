@@ -4,17 +4,19 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
+import { roleLabel } from '@/lib/roles';
 import DbUsage from './DbUsage';
 
 export default function Navigation() {
-  const { userId, userName, teamName, teams, activeTeamId, switchTeam, role, clearUser, hasMultipleTeams, canViewOverview, isExecutive } = useUser();
+  const { userId, userName, teamName, teams, activeTeamId, switchTeam, role, position, clearUser, hasMultipleTeams, canViewOverview, isExecutive } = useUser();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = () => { clearUser(); router.push('/'); };
   const closeMenu = () => setMenuOpen(false);
 
-  const roleLabel = role === 'superAdmin' ? '최고관리자' : role === 'teamMaster' ? '관리자' : role === 'executive' ? '임원' : '';
+  // 임원은 직급이 있으면 그대로 부른다 (대표·부사장 등)
+  const label = roleLabel(role, position);
 
   return (
     <nav className="nav-bar">
@@ -62,7 +64,7 @@ export default function Navigation() {
               <span style={{ color: 'var(--foreground)', fontWeight: 600 }}>{teamName}</span>
             )}
             {userName}
-            {roleLabel && <span style={{ background: 'var(--primary)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem' }}>{roleLabel}</span>}
+            {label && <span style={{ background: 'var(--primary)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem' }}>{label}</span>}
             <button onClick={handleLogout} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--text-muted)' }}>로그아웃</button>
           </span>
         )}

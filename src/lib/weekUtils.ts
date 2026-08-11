@@ -33,6 +33,33 @@ export function getNextWeek(year: number, weekNum: number): { year: number; week
   return { year: year + 1, weekNum: 1 };
 }
 
+/**
+ * 그 날짜가 속한 ISO 주차와 **그 주의 해**.
+ *
+ * 연초·연말에는 달력 연도와 주차의 해가 다르다 — 2027-01-01(금)은 2026년 53주차에 속한다.
+ * `now.getFullYear()` 와 주차를 그냥 짝지으면 그 며칠 동안 존재하지 않는 주차를 조회한다.
+ */
+export function getIsoWeek(d: Date): { year: number; weekNum: number } {
+  const weekNum = getWeekNumber(d);
+  const month = d.getMonth();
+  let year = d.getFullYear();
+  if (month === 11 && weekNum === 1) year += 1;        // 12월 말인데 1주차 → 다음 해 1주차
+  else if (month === 0 && weekNum >= 52) year -= 1;    // 1월 초인데 52/53주차 → 전년도 마지막 주
+  return { year, weekNum };
+}
+
+/**
+ * 화면을 열었을 때 기본으로 조회할 주차 — **월·화는 지난주, 수~일은 이번주**.
+ *
+ * 한 주가 끝난 뒤 월·화에 그 주 보고를 마무리하고 취합·요약한다. 그때 화면이 이번 주로 열리면
+ * 매번 한 주 뒤로 돌려놓고 봐야 한다. 수요일부터는 이번 주 내용을 쓰기 시작하므로 이번 주로 연다.
+ */
+export function getDefaultWeek(now: Date = new Date()): { year: number; weekNum: number } {
+  const cur = getIsoWeek(now);
+  const day = now.getDay();                            // 0=일, 1=월, 2=화
+  return day === 1 || day === 2 ? getPrevWeek(cur.year, cur.weekNum) : cur;
+}
+
 export function formatDateShort(d: Date): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }

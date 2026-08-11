@@ -41,10 +41,13 @@ export interface SharedDocState {
   localUser: DocPeer | null;
 }
 
-function colorOf(uid: number): string {
+/** 사람마다 고정 색 — 상단 접속자 표시와 칸 이름표가 같은 색이어야 누구인지 바로 안다 */
+export function peerColor(uid: number): string {
   const palette = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
   return palette[Math.abs(uid) % palette.length];
 }
+
+const colorOf = peerColor;
 
 interface TokenResponse {
   token: string;

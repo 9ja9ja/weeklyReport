@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { getWeekNumber } from '@/lib/weekUtils';
 import { isCollabWeek, type TeamCollabRange } from '@/lib/collabWeek';
+import { roleLabel } from '@/lib/roles';
 import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 
 /** 이번 주차 기준으로 이 팀이 공동 편집인지 */
@@ -168,6 +169,14 @@ export default function SettingsPage() {
       ? '임원으로 지정하시겠습니까?\n\n임원은 모든 팀의 전체 취합본을 조회만 할 수 있고, 작성·편집은 할 수 없습니다.'
       : '임원 권한을 해제하시겠습니까?')) return;
     const res = await post('/api/users', { targetUserId: targetId, role: newRole }, 'PATCH');
+    if (!res.ok) { alert((await res.json()).error); return; }
+    reload();
+  };
+  /** 직급 — 임원은 이 값이 곧 호칭이 된다 (대표·부사장 등) */
+  const changePosition = async (targetId: number, name: string, current: string) => {
+    const next = prompt(`${name}님의 직급을 입력하세요. (예: 대표, 팀장, 매니저)\n비워 두면 직급 표기를 지웁니다.`, current);
+    if (next === null || next.trim() === current.trim()) return;
+    const res = await post('/api/users', { targetUserId: targetId, position: next }, 'PATCH');
     if (!res.ok) { alert((await res.json()).error); return; }
     reload();
   };
@@ -363,11 +372,12 @@ export default function SettingsPage() {
             <div key={user.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ flex: 1, fontWeight: 600 }}>
                 {user.name}
-                {user.position && <span style={{ fontWeight: 400, fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>{user.position}</span>}
+                {/* 임원은 직급이 배지로 나가므로 여기서 또 쓰지 않는다 */}
+                {user.position && user.role !== 'executive' && <span style={{ fontWeight: 400, fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>{user.position}</span>}
                 {user.isPrimary === false && <span style={{ background: 'var(--surface-dim)', color: 'var(--text-muted)', border: '1px solid var(--border)', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem', fontWeight: 600 }}>겸직</span>}
                 {user.role === 'superAdmin' && <span style={{ background: '#dc2626', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>최고관리자</span>}
                 {user.role === 'teamMaster' && <span style={{ background: 'var(--primary)', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>관리자</span>}
-                {user.role === 'executive' && <span style={{ background: '#7c3aed', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>임원</span>}
+                {user.role === 'executive' && <span style={{ background: '#7c3aed', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>{roleLabel('executive', user.position)}</span>}
               </span>
               {user.isPrimary === false ? (
                 <button onClick={() => removeCrossUser(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#f59e0b', borderColor: '#f59e0b' }}>겸직 해제</button>
@@ -384,6 +394,7 @@ export default function SettingsPage() {
                       {user.role === 'executive' ? '임원 해제' : '임원 지정'}
                     </button>
                   )}
+                  <button onClick={() => changePosition(user.id, user.name, user.position ?? '')} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} title="직급 변경 (임원은 이 값이 호칭이 됩니다)">직급</button>
                   <button onClick={() => resetPassword(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>PW초기화</button>
                   {user.role !== 'superAdmin' && <button onClick={() => deleteUser(user.id, user.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }} disabled={user.id === userId}>✕</button>}
                 </>

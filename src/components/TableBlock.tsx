@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, useLayoutEffect, useRef } from 'react';
+import PeerField from './PeerField';
+import type { DocPeer } from './useSharedDoc';
+import type { BlockPresence } from './usePresence';
+import { PART } from './usePresence';
 import {
   TableBlock,
   setCell,
@@ -20,6 +24,8 @@ import {
   numericCellColor,
   formatNumericCell
 } from '@/lib/reportBlocks';
+
+const NO_PEERS: DocPeer[] = [];
 
 const cellBase: React.CSSProperties = {
   border: '1px solid var(--border)',
@@ -51,11 +57,13 @@ const inputBase: React.CSSProperties = {
  * scrollHeight 로 매번 높이를 다시 잡아야 지우거나 붙여넣어도 정확히 맞는다.
  */
 function CellInput({
-  value, onChange, style, ...rest
+  value, onChange, style, peers = NO_PEERS, ...rest
 }: {
   value: string;
   onChange: (v: string) => void;
   style?: React.CSSProperties;
+  /** 지금 이 칸을 쓰고 있는 다른 사람들 */
+  peers?: DocPeer[];
 } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'style'>) {
   const ref = useRef<HTMLTextAreaElement>(null);
   // 한글 조합 중에는 바깥에서 온 값으로 되쓰지 않는다 — 조합이 깨져 글자가 튄다.
@@ -71,25 +79,27 @@ function CellInput({
   }, [shown]);
 
   return (
-    <textarea
-      ref={ref}
-      rows={1}
-      value={shown}
-      onCompositionStart={() => { composing.current = true; }}
-      onCompositionEnd={e => {
-        composing.current = false;
-        setDraft(null);
-        onChange((e.target as HTMLTextAreaElement).value);
-      }}
-      onChange={e => {
-        const v = e.target.value;
-        if (composing.current) { setDraft(v); return; }
-        setDraft(null);
-        onChange(v);
-      }}
-      style={{ ...inputBase, ...style }}
-      {...rest}
-    />
+    <PeerField peers={peers}>
+      <textarea
+        ref={ref}
+        rows={1}
+        value={shown}
+        onCompositionStart={() => { composing.current = true; }}
+        onCompositionEnd={e => {
+          composing.current = false;
+          setDraft(null);
+          onChange((e.target as HTMLTextAreaElement).value);
+        }}
+        onChange={e => {
+          const v = e.target.value;
+          if (composing.current) { setDraft(v); return; }
+          setDraft(null);
+          onChange(v);
+        }}
+        style={{ ...inputBase, ...style }}
+        {...rest}
+      />
+    </PeerField>
   );
 }
 
@@ -131,6 +141,8 @@ interface EditorProps {
   onAuthorChange?: (v: string) => void;
   /** 공동 편집일 때만 준다. 있으면 onChange 대신 이쪽으로 나간다 */
   ops?: TableOps;
+  /** 공동 편집일 때만 준다 — 누가 어느 칸에 있는지 표시한다 */
+  presence?: BlockPresence;
 }
 
 /** 병합할 범위 — 시작칸과 끝칸 */
@@ -140,7 +152,10 @@ const inRange = (sel: CellRange | null, r: number, c: number) =>
   !!sel && r >= Math.min(sel.r1, sel.r2) && r <= Math.max(sel.r1, sel.r2)
         && c >= Math.min(sel.c1, sel.c2) && c <= Math.max(sel.c1, sel.c2);
 
-export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, ops }: EditorProps) {
+export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, ops, presence }: EditorProps) {
+  /** 공동 편집이 아니면 아무것도 표시하지 않는다 */
+  const peersAt = (part: string) => presence?.peers(part) ?? NO_PEERS;
+  const focusAt = (part: string) => presence?.focusProps(part);
   /** 연산이 주어지면 그쪽으로, 아니면 기존처럼 통째 교체 */
   const op: TableOps = ops ?? {
     setCaption: v => onChange({ ...block, caption: v }),
@@ -227,21 +242,24 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
         >
           표
         </span>
-        <input
-          value={block.caption}
-          onChange={e => op.setCaption(e.target.value)}
-          placeholder="표 제목 (예: 문의 대응)"
-          className="input-field"
-          style={{
-            flex: 1,
-            fontSize: '0.82rem',
-            fontWeight: 600,
-            padding: '0.2rem 0.3rem',
-            border: 'none',
-            borderBottom: '1px solid var(--border)',
-            background: 'transparent'
-          }}
-        />
+        <PeerField peers={peersAt(PART.caption)} style={{ flex: 1, minWidth: 0 }}>
+          <input
+            value={block.caption}
+            onChange={e => op.setCaption(e.target.value)}
+            {...focusAt(PART.caption)}
+            placeholder="표 제목 (예: 문의 대응)"
+            className="input-field"
+            style={{
+              width: '100%',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              padding: '0.2rem 0.3rem',
+              border: 'none',
+              borderBottom: '1px solid var(--border)',
+              background: 'transparent'
+            }}
+          />
+        </PeerField>
         {onAuthorChange && (
           <>
             <span style={{ color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>[</span>
@@ -269,7 +287,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
         </button>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
+      <div className="table-scroll" style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr>
@@ -278,6 +296,8 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
                   <CellInput
                     value={h}
                     onChange={v => op.setHeader(c, v)}
+                    peers={peersAt(PART.header(c))}
+                    {...focusAt(PART.header(c))}
                     placeholder={`열${c + 1}`}
                     style={{ fontWeight: 700 }}
                   />
@@ -331,7 +351,12 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
                       <CellInput
                         value={v}
                         onChange={nv => op.setCell(r, c, nv)}
-                        onFocus={() => setSel(prev => (inRange(prev, r, c) ? prev : { r1: r, c1: c, r2: r, c2: c }))}
+                        peers={peersAt(PART.cell(r, c))}
+                        onFocus={() => {
+                          setSel(prev => (inRange(prev, r, c) ? prev : { r1: r, c1: c, r2: r, c2: c }));
+                          focusAt(PART.cell(r, c))?.onFocus();
+                        }}
+                        onBlur={() => focusAt(PART.cell(r, c))?.onBlur()}
                         style={cellStyle(v)}
                       />
                     </td>

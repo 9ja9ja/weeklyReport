@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber, getWeekRange, getPrevWeek, formatDateShort } from '@/lib/weekUtils';
+import { getWeekNumber, getWeekRange, getPrevWeek, getDefaultWeek, formatDateShort } from '@/lib/weekUtils';
 import dynamic from 'next/dynamic';
 
 const BriefEditor = dynamic(() => import('@/components/BriefEditor'), { ssr: false });
@@ -24,7 +24,8 @@ export default function SchedulePage() {
   const router = useRouter();
 
   const now = new Date();
-  const defaultWeek = getPrevWeek(now.getFullYear(), getWeekNumber(now));
+  // 월·화는 지난주, 수~일은 이번주로 연다
+  const defaultWeek = getDefaultWeek(now);
   const [year, setYear] = useState(defaultWeek.year);
   const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);

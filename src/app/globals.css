@@ -686,6 +686,22 @@ select.input-field option {
 }
 .brief-live-saved { margin-left: auto; color: var(--text-muted); }
 
+/* ===== 작성 화면 — 누가 어느 칸을 쓰고 있는지 =====
+   요약본은 글 하나라 문자 단위 커서를 그리지만, 작성 화면은 입력칸이 쪼개진 폼이라
+   "지금 들어가 있는 칸"에 테두리와 이름표를 붙인다. */
+.peer-field { position: relative; display: block; min-width: 0; }
+.peer-field-tags {
+  position: absolute; top: -0.72rem; right: 0;
+  display: flex; gap: 2px; pointer-events: none; z-index: 4;
+}
+.peer-field-tag {
+  color: #fff; font-size: 0.6rem; font-weight: 600; line-height: 1.2;
+  padding: 0.05rem 0.28rem; border-radius: 3px 3px 0 0;
+  white-space: nowrap; max-width: 7rem; overflow: hidden; text-overflow: ellipsis;
+}
+/* 표는 가로 스크롤 상자 안에 있다. 위쪽 여백을 두지 않으면 첫 행 이름표가 잘린다 */
+.table-scroll { padding-top: 0.8rem; margin-top: -0.8rem; }
+
 /* 다른 사람 커서 — y-prosemirror 가 붙이는 클래스 */
 .brief-editor-content .collaboration-carets__caret {
   position: relative; border-left: 1px solid; border-right: 1px solid;
