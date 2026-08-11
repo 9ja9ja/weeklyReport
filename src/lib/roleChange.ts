@@ -16,16 +16,24 @@ export interface RoleChange {
   /** 바꾸려는 사람 */
   actorId: number;
   actorIsSuperAdmin: boolean;
-  target: { id: number; role: string };
+  target: { id: number; role: string; roleLocked?: boolean };
   nextRole: unknown;
   /** 지금 남아 있는 활성 최고관리자 수 (대상 포함) */
   superAdminCount: number;
 }
 
+/** 잠긴 계정에 손댈 때 보여줄 문구 (권한 변경·삭제 공통) */
+export const LOCKED_MESSAGE =
+  '이 계정은 권한이 잠겨 있어 변경·삭제할 수 없습니다. 시스템을 되돌릴 최후의 계정입니다.';
+
 /** 막아야 할 이유. 문제가 없으면 null */
 export function roleChangeError(c: RoleChange): string | null {
   if (!isRole(c.nextRole)) return '권한 값이 올바르지 않습니다.';
   const next = c.nextRole;
+
+  // 잠긴 계정은 누가 어떤 권한으로 요청해도 바꾸지 않는다.
+  // 이 규칙을 다른 검사보다 먼저 두어야, 최고관리자라도 예외가 생기지 않는다.
+  if (c.target.roleLocked && next !== c.target.role) return LOCKED_MESSAGE;
 
   // 최고관리자·임원은 최고관리자만 다룬다 (팀장은 자기 팀의 관리자 지정까지)
   if ((next === 'superAdmin' || next === 'executive') && !c.actorIsSuperAdmin) {

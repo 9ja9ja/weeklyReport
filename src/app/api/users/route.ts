@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireTeamMaster, requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { compareMembers } from '@/lib/roles';
-import { roleChangeError } from '@/lib/roleChange';
+import { roleChangeError, LOCKED_MESSAGE } from '@/lib/roleChange';
 import bcrypt from 'bcryptjs';
 
 export async function GET(request: Request) {
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       orderBy: { name: 'asc' },
       select: {
         id: true, name: true, role: true, teamId: true, position: true,
-        mustChangePw: true, isActive: true, createdAt: true,
+        mustChangePw: true, isActive: true, createdAt: true, roleLocked: true,
         userTeams: { select: { teamId: true, isPrimary: true, orderIdx: true } },
         ...(withStatus && year && weekNum ? {
           reports: { where: { year, weekNum }, select: { id: true, updatedAt: true } }
@@ -54,6 +54,7 @@ export async function GET(request: Request) {
     return NextResponse.json(users.map(u => ({
       id: u.id, name: u.name, role: u.role, teamId: u.teamId, position: u.position,
       mustChangePw: u.mustChangePw, isActive: u.isActive, createdAt: u.createdAt,
+      roleLocked: u.roleLocked,
       teamIds: u.userTeams.map(t => t.teamId),
       isPrimary: teamId ? u.userTeams.some(t => t.teamId === teamId && t.isPrimary) : true
     })));
@@ -151,7 +152,15 @@ export async function DELETE(request: Request) {
 
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (!await requireTeamMaster(me, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    // 잠긴 계정은 지울 수 없다. 지워버리면 권한 잠금이 무의미해진다.
+    if (target.roleLocked) return NextResponse.json({ error: LOCKED_MESSAGE }, { status: 400 });
+    // 최고관리자 계정 삭제는 최고관리자만. 팀장이 자기 팀의 최고관리자를 지우면
+    // '해제는 못 하지만 삭제는 된다'는 우회로가 된다.
+    if (target.role === 'superAdmin') {
+      if (!await requireSuperAdmin(me)) return NextResponse.json({ error: '최고관리자만 삭제할 수 있습니다.' }, { status: 403 });
+    } else if (!await requireTeamMaster(me, target.teamId)) {
+      return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+    }
 
     await prisma.user.delete({ where: { id } });
     return NextResponse.json({ success: true });
@@ -171,7 +180,15 @@ export async function PATCH(request: Request) {
 
     // 비밀번호 초기화
     if (resetPassword) {
-      if (!await requireTeamMaster(me, target.teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+      // 초기화하면 그 계정으로 로그인할 수 있게 된다(0000). 최고관리자·잠긴 계정을
+      // 팀장이 초기화할 수 있으면 권한을 못 내려도 계정을 통째로 가져갈 수 있다.
+      if (target.role === 'superAdmin' || target.roleLocked) {
+        if (!await requireSuperAdmin(me)) {
+          return NextResponse.json({ error: '이 계정의 비밀번호는 최고관리자만 초기화할 수 있습니다.' }, { status: 403 });
+        }
+      } else if (!await requireTeamMaster(me, target.teamId)) {
+        return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+      }
       const hashed = await bcrypt.hash('0000', 10);
       await prisma.user.update({ where: { id: targetUserId }, data: { password: hashed, mustChangePw: true } });
       return NextResponse.json({ success: true });
@@ -183,7 +200,7 @@ export async function PATCH(request: Request) {
       const err = roleChangeError({
         actorId: me,
         actorIsSuperAdmin: superAdmin,
-        target: { id: target.id, role: target.role },
+        target: { id: target.id, role: target.role, roleLocked: target.roleLocked },
         nextRole: role,
         // 대상까지 포함한 수. 마지막 한 명을 푸는지 여기서 가린다.
         superAdminCount: await prisma.user.count({ where: { role: 'superAdmin', isActive: true } })

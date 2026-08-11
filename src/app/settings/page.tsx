@@ -21,7 +21,7 @@ interface TeamInfo {
   collabUntilYear?: number | null; collabUntilWeek?: number | null;
   _count?: { users: number; parts?: number };
 }
-interface UserInfo { id: number; name: string; role: string; teamId: number; position?: string; isPrimary?: boolean; teamIds?: number[]; }
+interface UserInfo { id: number; name: string; role: string; teamId: number; position?: string; isPrimary?: boolean; teamIds?: number[]; roleLocked?: boolean; }
 interface PartInfo { id: number; name: string; orderIdx: number; teamId: number; isActive: boolean; }
 interface MajorInfo { id: number; name: string; orderIdx: number; teamId: number; partId: number; isActive: boolean; }
 interface CategoryInfo { id: number; major: string; middle: string; orderIdx: number; teamId: number; partId: number; isActive: boolean; }
@@ -412,6 +412,8 @@ export default function SettingsPage() {
                 {user.position && user.role !== 'executive' && <span style={{ fontWeight: 400, fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>{user.position}</span>}
                 {user.isPrimary === false && <span style={{ background: 'var(--surface-dim)', color: 'var(--text-muted)', border: '1px solid var(--border)', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem', fontWeight: 600 }}>겸직</span>}
                 {user.role === 'superAdmin' && <span style={{ background: '#dc2626', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>최고관리자</span>}
+                {/* 잠긴 계정 — 권한 변경·삭제가 아예 불가능하다는 표시 */}
+                {user.roleLocked && <span title="권한 잠금 — 변경·삭제 불가" style={{ border: '1px solid #dc2626', color: '#dc2626', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.35rem', fontWeight: 600 }}>잠금</span>}
                 {user.role === 'teamMaster' && <span style={{ background: 'var(--primary)', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>관리자</span>}
                 {user.role === 'executive' && <span style={{ background: '#7c3aed', color: 'white', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.5rem' }}>{roleLabel('executive', user.position)}</span>}
               </span>
@@ -419,26 +421,26 @@ export default function SettingsPage() {
                 <button onClick={() => removeCrossUser(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#f59e0b', borderColor: '#f59e0b' }}>겸직 해제</button>
               ) : (
                 <>
-                  {user.role !== 'superAdmin' && user.role !== 'executive' && (
+                  {!user.roleLocked && user.role !== 'superAdmin' && user.role !== 'executive' && (
                     <button onClick={() => changeRole(user.id, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)', borderColor: user.role === 'teamMaster' ? '#ef4444' : 'var(--primary)' }}
                       disabled={user.id === userId && user.role === 'teamMaster'}>
                       {user.role === 'teamMaster' ? '관리자 해제' : '관리자 지정'}
                     </button>
                   )}
                   {/* 최고관리자 지정·해제 — 최고관리자만. 본인 것은 스스로 못 내린다(잠김 방지) */}
-                  {isSuperAdmin && user.role !== 'executive' && user.id !== userId && (
+                  {isSuperAdmin && !user.roleLocked && user.role !== 'executive' && user.id !== userId && (
                     <button onClick={() => toggleSuperAdmin(user.id, user.name, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#dc2626', borderColor: '#dc2626' }}>
                       {user.role === 'superAdmin' ? '최고관리자 해제' : '최고관리자 지정'}
                     </button>
                   )}
-                  {isSuperAdmin && user.role !== 'superAdmin' && user.id !== userId && (
+                  {isSuperAdmin && !user.roleLocked && user.role !== 'superAdmin' && user.id !== userId && (
                     <button onClick={() => toggleExecutive(user.id, user.role)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: '#7c3aed', borderColor: '#7c3aed' }}>
                       {user.role === 'executive' ? '임원 해제' : '임원 지정'}
                     </button>
                   )}
                   <button onClick={() => changePosition(user.id, user.name, user.position ?? '')} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} title="직급 변경 (임원은 이 값이 호칭이 됩니다)">직급</button>
                   <button onClick={() => resetPassword(user.id, user.name)} className="btn" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>PW초기화</button>
-                  {user.role !== 'superAdmin' && <button onClick={() => deleteUser(user.id, user.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }} disabled={user.id === userId}>✕</button>}
+                  {user.role !== 'superAdmin' && !user.roleLocked && <button onClick={() => deleteUser(user.id, user.name)} className="icon-btn del" style={{ fontSize: '0.85rem' }} disabled={user.id === userId}>✕</button>}
                 </>
               )}
             </div>

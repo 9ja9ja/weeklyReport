@@ -46,6 +46,9 @@ model User {
   password     String   @default("NOT_SET")
   mustChangePw Boolean  @default(true)
   isActive     Boolean  @default(true)
+  /// 권한 잠금 — 켜면 권한 변경·삭제가 화면에서 아예 불가능하다(비밀번호 초기화도 최고관리자만).
+  /// 시스템을 되돌릴 최후의 계정을 지키는 값이라 **화면에서는 켜고 끌 수 없다** — DB 로만 바꾼다.
+  roleLocked   Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   reports       Report[]

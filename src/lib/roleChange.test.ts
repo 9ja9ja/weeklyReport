@@ -77,6 +77,32 @@ describe('막아야 하는 변경', () => {
   });
 });
 
+describe('권한 잠금 계정', () => {
+  const locked = { id: 2, role: 'superAdmin', roleLocked: true };
+
+  it('최고관리자라도 잠긴 계정의 권한은 바꿀 수 없다', () => {
+    for (const next of ['user', 'teamMaster', 'executive']) {
+      expect(roleChangeError({ ...base, target: locked, nextRole: next, superAdminCount: 5 }))
+        .toMatch(/잠겨 있어/);
+    }
+  });
+
+  it('남은 최고관리자가 많아도 예외가 없다', () => {
+    expect(roleChangeError({ ...base, target: locked, nextRole: 'user', superAdminCount: 99 }))
+      .toMatch(/잠겨 있어/);
+  });
+
+  it('같은 권한으로 다시 지정하는 것은 변경이 아니라 통과시킨다', () => {
+    expect(roleChangeError({ ...base, target: locked, nextRole: 'superAdmin', superAdminCount: 5 })).toBeNull();
+  });
+
+  it('잠기지 않은 계정은 종전대로 동작한다', () => {
+    expect(roleChangeError({
+      ...base, target: { id: 2, role: 'superAdmin', roleLocked: false }, nextRole: 'user', superAdminCount: 2
+    })).toBeNull();
+  });
+});
+
 describe('isRole', () => {
   it('아는 값만 통과시킨다', () => {
     expect(['user', 'teamMaster', 'executive', 'superAdmin'].every(isRole)).toBe(true);
