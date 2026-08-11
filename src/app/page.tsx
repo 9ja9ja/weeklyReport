@@ -267,6 +267,12 @@ export default function Home() {
                         style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
                       >
                         <div style={{ flex: 1, minWidth: 0, fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                          {/* 직급 — 설정 > 팀원 관리에서 넣은 값. 없는 사람은 이름만 나온다 */}
+                          {user.position && (
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.8rem', marginRight: '0.35rem', flexShrink: 0 }}>
+                              [{user.position}]
+                            </span>
+                          )}
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</span>
                           {user.isPrimary === false && (
                             <span title="겸직" style={{ background: 'var(--surface-dim)', color: 'var(--text-muted)', border: '1px solid var(--border)', padding: '0.05rem 0.3rem', borderRadius: '3px', fontSize: '0.6rem', marginLeft: '0.4rem', fontWeight: 600, flexShrink: 0 }}>겸직</span>
