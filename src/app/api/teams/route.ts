@@ -20,7 +20,8 @@ export async function GET(request: Request) {
         orderBy: { orderIdx: 'asc' },
         include: {
           userTeams: {
-            orderBy: [{ isPrimary: 'desc' }, { user: { name: 'asc' } }],
+            // 팀 안 표시 순서 — 지정한 순서(직급 순 등)가 먼저, 지정 없는 사람은 이름순
+            orderBy: [{ isPrimary: 'desc' }, { orderIdx: 'asc' }, { user: { name: 'asc' } }],
             include: {
               user: {
                 select: {

@@ -67,6 +67,10 @@ model UserTeam {
   teamId    Int
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   isPrimary Boolean  @default(false)
+  /// 팀 안에서의 표시 순서. 직급 순으로 보여야 하는 팀(임원 등)이 있어 이름순만으로는 부족하다.
+  /// 지정하지 않은 사람은 999 로 남아 이름순으로 뒤에 붙는다 —
+  /// 0 을 기본으로 두면 새로 추가된 사람이 맨 위로 튀어 오른다.
+  orderIdx  Int      @default(999)
   createdAt DateTime @default(now())
 
   @@unique([userId, teamId])

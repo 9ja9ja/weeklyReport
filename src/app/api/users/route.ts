@@ -16,18 +16,32 @@ export async function GET(request: Request) {
     // teamId 지정 시 겸직 인원까지 포함해서 조회
     const where = teamId ? { userTeams: { some: { teamId } } } : {};
 
-    const users = await prisma.user.findMany({
+    const rows = await prisma.user.findMany({
       where,
       orderBy: { name: 'asc' },
       select: {
         id: true, name: true, role: true, teamId: true, position: true,
         mustChangePw: true, isActive: true, createdAt: true,
-        userTeams: { select: { teamId: true, isPrimary: true } },
+        userTeams: { select: { teamId: true, isPrimary: true, orderIdx: true } },
         ...(withStatus && year && weekNum ? {
           reports: { where: { year, weekNum }, select: { id: true, updatedAt: true } }
         } : {})
       }
     });
+
+    // 팀 안에서는 지정한 순서(직급 순 등)를 따르고, 지정 없는 사람은 이름순으로 뒤에 붙는다.
+    // 순서는 팀마다 따로라(UserTeam) 겸직자가 있어도 다른 팀 순서를 흔들지 않는다.
+    const membership = (u: (typeof rows)[number]) => u.userTeams.find(t => t.teamId === teamId);
+    const users = teamId
+      ? [...rows].sort((a, b) => {
+          const ma = membership(a), mb = membership(b);
+          const pa = ma?.isPrimary ? 0 : 1, pb = mb?.isPrimary ? 0 : 1;
+          if (pa !== pb) return pa - pb;
+          const oa = ma?.orderIdx ?? 999, ob = mb?.orderIdx ?? 999;
+          if (oa !== ob) return oa - ob;
+          return a.name.localeCompare(b.name, 'ko');
+        })
+      : rows;
 
     if (withStatus && year && weekNum) {
       return NextResponse.json(users.map(u => ({
@@ -75,12 +89,35 @@ export async function POST(request: Request) {
   }
 }
 
-/** 겸직 추가/해제 — PUT /api/users  { targetUserId, teamId, action: 'add'|'remove' } */
+/**
+ * 겸직 추가/해제 — PUT /api/users  { targetUserId, teamId, action: 'add'|'remove' }
+ * 팀 안 순서 변경 — PUT /api/users  { teamId, userIds: [...] }  (화면에 보이는 순서 그대로)
+ */
 export async function PUT(request: Request) {
   try {
     const me = await currentUserId();
     if (!me) return unauthorized();
-    const { targetUserId, teamId, action } = await request.json();
+    const { targetUserId, teamId, action, userIds } = await request.json();
+
+    // 순서 변경 — 화면이 보내온 순서대로 다시 번호를 매긴다(파트·분류 순서와 같은 방식)
+    if (Array.isArray(userIds)) {
+      if (!teamId) return NextResponse.json({ error: '팀을 지정해주세요.' }, { status: 400 });
+      if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+      if (!userIds.every(Number.isInteger)) return NextResponse.json({ error: '순서가 올바르지 않습니다.' }, { status: 400 });
+      // 이 팀 소속이 아닌 id 가 섞여 오면 다른 팀의 순서를 건드리게 된다
+      const members = await prisma.userTeam.findMany({ where: { teamId }, select: { userId: true } });
+      const allowed = new Set(members.map(m => m.userId));
+      if (!userIds.every((id: number) => allowed.has(id))) {
+        return NextResponse.json({ error: '이 팀 소속이 아닌 인원이 포함되어 있습니다.' }, { status: 400 });
+      }
+      await prisma.$transaction(
+        userIds.map((id: number, idx: number) =>
+          prisma.userTeam.update({ where: { userId_teamId: { userId: id, teamId } }, data: { orderIdx: idx } })
+        )
+      );
+      return NextResponse.json({ success: true });
+    }
+
     if (!targetUserId || !teamId) return NextResponse.json({ error: '입력값을 확인해주세요.' }, { status: 400 });
     if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 

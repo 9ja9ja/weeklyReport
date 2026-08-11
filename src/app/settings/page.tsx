@@ -156,6 +156,20 @@ export default function SettingsPage() {
     const res = await post('/api/users', { targetUserId: targetId, teamId: activeTeamId, action: 'remove' }, 'PUT');
     if (res.ok) reload(); else alert((await res.json()).error);
   };
+  /**
+   * 팀 안 표시 순서 변경.
+   * 이름순이 아니라 직급 순으로 보여야 하는 팀(임원 등)이 있어서 둔다.
+   * 순서는 팀마다 따로 저장되므로 겸직자를 옮겨도 다른 팀 순서는 그대로다.
+   */
+  const moveUser = async (idx: number, dir: -1 | 1) => {
+    if (idx + dir < 0 || idx + dir >= users.length) return;
+    const next = [...users];
+    [next[idx], next[idx + dir]] = [next[idx + dir], next[idx]];
+    setUsers(next);   // 먼저 화면에 반영해 연속으로 눌러도 밀리지 않게
+    const res = await post('/api/users', { teamId: activeTeamId, userIds: next.map(u => u.id) }, 'PUT');
+    if (!res.ok) { alert((await res.json()).error || '순서 변경 실패'); }
+    reload();
+  };
   const changeRole = async (targetId: number, currentRole: string) => {
     const newRole = currentRole === 'teamMaster' ? 'user' : 'teamMaster';
     if (targetId === userId && currentRole !== 'user') { alert('본인의 권한은 해제할 수 없습니다.'); return; }
@@ -369,8 +383,15 @@ export default function SettingsPage() {
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>
             팀원 관리 {sectionSuffix()}
           </h3>
-          {users.map(user => (
+          {users.map((user, uIdx) => (
             <div key={user.id} className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.6rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
+              {/* 표시 순서 — 이름순으로 두면 곤란한 팀(임원 등)이 있다 */}
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0 }}>
+                <button onClick={() => moveUser(uIdx, -1)} disabled={uIdx === 0} title="위로"
+                  style={{ border: 'none', background: 'none', cursor: uIdx === 0 ? 'default' : 'pointer', color: uIdx === 0 ? 'var(--border)' : 'var(--text-muted)', fontSize: '0.6rem', lineHeight: 1, padding: 0 }}>▲</button>
+                <button onClick={() => moveUser(uIdx, 1)} disabled={uIdx === users.length - 1} title="아래로"
+                  style={{ border: 'none', background: 'none', cursor: uIdx === users.length - 1 ? 'default' : 'pointer', color: uIdx === users.length - 1 ? 'var(--border)' : 'var(--text-muted)', fontSize: '0.6rem', lineHeight: 1, padding: 0 }}>▼</button>
+              </span>
               <span style={{ flex: 1, fontWeight: 600 }}>
                 {user.name}
                 {/* 임원은 직급이 배지로 나가므로 여기서 또 쓰지 않는다 */}
