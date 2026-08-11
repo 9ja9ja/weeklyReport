@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireTeamMaster, requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
+import { compareMembers } from '@/lib/roles';
 import bcrypt from 'bcryptjs';
 
 export async function GET(request: Request) {
@@ -29,18 +30,15 @@ export async function GET(request: Request) {
       }
     });
 
-    // 팀 안에서는 지정한 순서(직급 순 등)를 따르고, 지정 없는 사람은 이름순으로 뒤에 붙는다.
+    // 팀 안 표시 순서 — 손으로 정한 순서 > 직책(팀장·부팀장) > 이름.
     // 순서는 팀마다 따로라(UserTeam) 겸직자가 있어도 다른 팀 순서를 흔들지 않는다.
     const membership = (u: (typeof rows)[number]) => u.userTeams.find(t => t.teamId === teamId);
+    const ordered = (u: (typeof rows)[number]) => {
+      const m = membership(u);
+      return { isPrimary: !!m?.isPrimary, orderIdx: m?.orderIdx ?? 999, position: u.position, name: u.name };
+    };
     const users = teamId
-      ? [...rows].sort((a, b) => {
-          const ma = membership(a), mb = membership(b);
-          const pa = ma?.isPrimary ? 0 : 1, pb = mb?.isPrimary ? 0 : 1;
-          if (pa !== pb) return pa - pb;
-          const oa = ma?.orderIdx ?? 999, ob = mb?.orderIdx ?? 999;
-          if (oa !== ob) return oa - ob;
-          return a.name.localeCompare(b.name, 'ko');
-        })
+      ? [...rows].sort((a, b) => compareMembers(ordered(a), ordered(b)))
       : rows;
 
     if (withStatus && year && weekNum) {

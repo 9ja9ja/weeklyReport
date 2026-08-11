@@ -4,6 +4,7 @@ import { requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { getPrevWeek, getIsoWeek } from '@/lib/weekUtils';
 import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 import { isCollabWeek } from '@/lib/collabWeek';
+import { compareMembers } from '@/lib/roles';
 import { currentEnvironment } from '@/lib/realtime/persist';
 
 export async function GET(request: Request) {
@@ -61,7 +62,13 @@ export async function GET(request: Request) {
         name: team.name,
         division: team.division,
         prevWeekNum: prev.weekNum,
-        users: team.userTeams.map(ut => {
+        // 손으로 정한 순서 > 직책(팀장·부팀장) > 이름. 직책은 DB 정렬로 표현할 수 없어 여기서 맞춘다.
+        users: [...team.userTeams]
+          .sort((a, b) => compareMembers(
+            { isPrimary: a.isPrimary, orderIdx: a.orderIdx, position: a.user.position, name: a.user.name },
+            { isPrimary: b.isPrimary, orderIdx: b.orderIdx, position: b.user.position, name: b.user.name }
+          ))
+          .map(ut => {
           const curCollab = isCollabWeek(team, year, weekNum);
           const preCollab = isCollabWeek(team, prev.year, prev.weekNum);
           const curAct = actMap.get(actKey(team.id, ut.user.id, year, weekNum));
