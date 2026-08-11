@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, type LoginUser } from '@/lib/UserContext';
 import Link from 'next/link';
-import { getWeekNumber, getWeekRange, formatDateShort } from '@/lib/weekUtils';
+import { getIsoWeek, getWeekRange, formatDateShort } from '@/lib/weekUtils';
 import WeekCalendar from '@/components/WeekCalendar';
 
 interface TeamUser {
@@ -34,8 +34,8 @@ export default function Home() {
   const { setUserFromLogin } = useUser();
 
   const now = new Date();
-  const year = now.getFullYear();
-  const weekNum = getWeekNumber(now);
+  // 주차가 속한 해 — 1/1 이 전년도 53주차인 해에 달력 연도를 붙이면 없는 주차를 조회한다
+  const { year, weekNum } = getIsoWeek(now);
 
   const [search, setSearch] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);

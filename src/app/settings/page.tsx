@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber } from '@/lib/weekUtils';
+import { getIsoWeek } from '@/lib/weekUtils';
 import { isCollabWeek, type TeamCollabRange } from '@/lib/collabWeek';
 import { roleLabel } from '@/lib/roles';
 import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
@@ -11,7 +11,8 @@ import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 /** 이번 주차 기준으로 이 팀이 공동 편집인지 */
 function isCollabOn(t: TeamCollabRange): boolean {
   const now = new Date();
-  return isCollabWeek(t, now.getFullYear(), getWeekNumber(now));
+  const { year, weekNum } = getIsoWeek(now);
+  return isCollabWeek(t, year, weekNum);
 }
 
 interface TeamInfo {

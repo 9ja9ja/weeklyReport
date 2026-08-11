@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
-import { getPrevWeek, getWeekNumber } from '@/lib/weekUtils';
+import { getPrevWeek, getIsoWeek } from '@/lib/weekUtils';
 import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
 import { isCollabWeek } from '@/lib/collabWeek';
 import { currentEnvironment } from '@/lib/realtime/persist';
@@ -165,8 +165,11 @@ export async function PATCH(request: Request) {
           { status: 409 }
         );
       }
+      // 달력 연도가 아니라 **주차가 속한 해**를 쓴다. 1/1 이 전년도 53주차인 해에
+      // 달력 연도를 붙이면 존재하지 않는 주차(2027-W53)가 저장돼, 그 팀이 한 해 내내
+      // 공동 편집으로 판정되지 않는다.
       const now = new Date();
-      const cur = { year: now.getFullYear(), weekNum: getWeekNumber(now) };
+      const cur = getIsoWeek(now);
       const team = await prisma.team.findUnique({
         where: { id },
         select: { collabFromYear: true, collabFromWeek: true }

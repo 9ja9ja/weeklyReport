@@ -1,13 +1,13 @@
 'use client';
 
-import { getWeekNumber } from '@/lib/weekUtils';
+import { getIsoWeek } from '@/lib/weekUtils';
 
 /** 이번주가 음영으로 표시되는 2개월 달력 (홈·대시보드 공용) */
 export default function WeekCalendar({ months = 2, vertical = false }: { months?: number; vertical?: boolean }) {
   const now = new Date();
-  const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
-  const currentWeek = getWeekNumber(now);
+  // 이번주 음영 판정 — 연말·연초에는 주차의 해가 달력 연도와 다르다
+  const { year: currentYear, weekNum: currentWeek } = getIsoWeek(now);
   const today = now.getDate();
 
   const renderMonth = (year: number, month: number) => {
@@ -24,7 +24,8 @@ export default function WeekCalendar({ months = 2, vertical = false }: { months?
     const isCurrentWeekDay = (day: number | null) => {
       if (!day) return false;
       const d = new Date(year, month, day);
-      return getWeekNumber(d) === currentWeek && d.getFullYear() === currentYear;
+      const iso = getIsoWeek(d);
+      return iso.weekNum === currentWeek && iso.year === currentYear;
     };
     const isToday = (day: number | null) =>
       day !== null && year === now.getFullYear() && month === now.getMonth() && day === today;
