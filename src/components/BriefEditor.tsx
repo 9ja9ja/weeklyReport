@@ -2,12 +2,15 @@
 
 import { useEditor, EditorContent } from '@tiptap/react';
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import type { Node as PMNode } from '@tiptap/pm/model';
 import { Extension, type Editor } from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import type * as Y from 'yjs';
 import { briefExtensions, changeIndent, BRIEF_FRAGMENT } from '@/lib/realtime/briefSchema';
+import { stripThemeColors, shouldIgnoreColor } from '@/lib/briefColors';
 
 interface Props {
   content: string;
@@ -73,65 +76,49 @@ function cleanWordHtml(html: string): string {
   return h.trim();
 }
 
-/**
- * 색 문자열의 밝기(0~1). 해석할 수 없으면 null.
- * `#rgb` / `#rrggbb` / `rgb()` / 이름 몇 개만 본다 — 붙여넣기에서 실제로 오는 형태들이다.
- */
-function luminance(raw: string): number | null {
-  const v = raw.trim().toLowerCase();
-  const named: Record<string, number> = { black: 0, white: 1, windowtext: 0, transparent: -1 };
-  if (v in named) return named[v] < 0 ? null : named[v];
-
-  let r: number, g: number, b: number;
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
-  if (hex) {
-    const h = hex[1].length === 3 ? hex[1].split('').map(c => c + c).join('') : hex[1];
-    r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
-  } else {
-    const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(v);
-    if (!rgb) return null;
-    r = parseFloat(rgb[1]); g = parseFloat(rgb[2]); b = parseFloat(rgb[3]);
-  }
-  if (![r, g, b].every(Number.isFinite)) return null;
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-}
-
-/**
- * 테마 기본색(거의 흰색·거의 검정)인가 — 의도한 강조색이 아니라 편집기 테마의 흔적이다.
- *
- * 배경색은 훨씬 좁게 본다. 형광펜·파스텔 강조는 원래 아주 밝아서(예 #fef08a, 명도 0.92)
- * 글자색과 같은 기준을 쓰면 의도한 강조가 통째로 지워진다.
- */
-const isThemeArtifactColor = (raw: string, isBackground: boolean): boolean => {
-  const l = luminance(raw);
-  if (l === null) return false;
-  return isBackground ? l > 0.97 || l < 0.04 : l > 0.88 || l < 0.12;
-};
-
-/**
- * 붙여넣은 HTML 에서 **테마에 종속된 글자색·배경색만** 걷어낸다.
- *
- * 다크모드 워드에서 복사하면 글자색이 흰색으로 박혀 들어와 다른 사람의 밝은 화면에서
- * 아예 안 보인다. 반대로 검정으로 바꿔 저장하면 다크모드에서 안 보인다.
- * 어느 쪽이든 "그 사람 편집기의 테마"일 뿐 내용이 아니므로 저장하지 않는다.
- * 빨강·파랑 같은 의도한 강조색은 그대로 둔다.
- */
-export function stripThemeColors(html: string): string {
-  return html.replace(/\sstyle="([^"]*)"/gi, (whole, styles: string) => {
-    const kept = styles
-      .split(';')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .filter(decl => {
-        const i = decl.indexOf(':');
-        if (i < 0) return true;
-        const prop = decl.slice(0, i).trim().toLowerCase();
-        if (prop !== 'color' && prop !== 'background-color' && prop !== 'background') return true;
-        return !isThemeArtifactColor(decl.slice(i + 1), prop !== 'color');
-      });
-    return kept.length ? ` style="${kept.join('; ')}"` : '';
+/** 테마 색이 박힌 글자에 표시만 남긴다 (실제 색은 CSS 가 테마 기본색으로 덮는다) */
+function themeColorDecorations(doc: PMNode): DecorationSet {
+  const found: Decoration[] = [];
+  doc.descendants((node, pos) => {
+    const t = node.type.name;
+    // 배경을 칠한 칸은 통째로 건너뛴다
+    if ((t === 'tableCell' || t === 'tableHeader') && node.attrs.backgroundColor) return false;
+    if (!node.isText) return true;
+    const color = node.marks.find(m => m.type.name === 'textStyle')?.attrs?.color;
+    const highlighted = node.marks.some(m => m.type.name === 'highlight');
+    if (shouldIgnoreColor(color, { highlighted })) {
+      found.push(Decoration.inline(pos, pos + node.nodeSize, { class: 'brief-theme-color' }));
+    }
+    return true;
   });
+  return DecorationSet.create(doc, found);
 }
+
+/**
+ * 저장된 문서의 테마 색 구제.
+ *
+ * 워드에서 복사한 본문은 글자색이 `#262626` 처럼 **거의 검정**으로 박혀 오는데,
+ * 다크모드에서는 배경과 같아 아예 보이지 않는다. 반대로 다크모드에서 복사한 흰 글씨는
+ * 밝은 화면에서 안 보인다. 색을 명도로만 판단하면 의도한 짙은 빨강(#C00000)이 먼저 지워지므로
+ * 무채색 여부까지 함께 본다(briefColors 참고).
+ */
+const ThemeColorRescue = Extension.create({
+  name: 'themeColorRescue',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('themeColorRescue'),
+        state: {
+          init: (_, state: EditorState) => themeColorDecorations(state.doc),
+          apply: (tr, old: DecorationSet) => (tr.docChanged ? themeColorDecorations(tr.doc) : old)
+        },
+        props: {
+          decorations(state) { return this.getState(state); }
+        }
+      })
+    ];
+  }
+});
 
 const WordPaste = Extension.create({
   name: 'wordPaste',
@@ -174,6 +161,7 @@ export default function BriefEditor({ content, onChange, editable, ydoc, provide
     extensions: [
       ...briefExtensions({ collaborative }),
       WordPaste,
+      ThemeColorRescue,
       ...(ydoc ? [Collaboration.configure({ document: ydoc, field: BRIEF_FRAGMENT })] : []),
       ...(ydoc && provider && user
         ? [CollaborationCaret.configure({ provider, user })]
