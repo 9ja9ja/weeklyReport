@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createTableBlock, addRow, removeRow, addColumn, removeColumn,
   mergeCells, unmergeCells, mergeAt, isCovered, spanAt, setCell,
+  clipboardForTablePaste, hasHtmlTable, isEditingTableCopy,
   type TableBlock
 } from './reportBlocks';
 
@@ -154,5 +155,76 @@ describe('셀 병합 — 기존 데이터 호환', () => {
     expect(isCovered(legacy, 0, 1)).toBe(false);
     expect(spanAt(legacy, 0, 0)).toEqual({ rowSpan: 1, colSpan: 1 });
     expect(addRow(legacy, 0).rows.length).toBe(2);
+  });
+});
+
+/**
+ * 붙여넣기를 표 교체로 볼지의 판정.
+ *
+ * 표를 넣는 실제 동작은 "셀을 클릭하고 Ctrl+V" 다 — 이때 커서는 셀 입력칸(textarea) 안에 있다.
+ * 입력칸 안이라는 이유로 전부 넘겨버리면 표 전체 텍스트가 한 칸에 쏟아지고(제보된 증상),
+ * 반대로 전부 표로 받으면 한 칸에 여러 줄 메모를 붙여넣는 것까지 표를 갈아엎는다.
+ * 가르는 기준은 **클립보드에 진짜 표(text/html 의 <table>)가 실려 있는가** 하나다.
+ */
+describe('표 붙여넣기 판정', () => {
+  /** 구글 독스·시트에서 표를 복사하면 이런 모양으로 들어온다 */
+  const DOCS_HTML =
+    '<meta charset="utf-8"><google-sheets-html-origin>' +
+    '<table><tbody><tr><td>구분</td><td>Pharos</td></tr><tr><td>CMS등록</td><td>8</td></tr></tbody></table>';
+  const DOCS_TSV = '구분\tPharos\nCMS등록\t8';
+
+  it('셀 안에서 구글 독스·엑셀 표를 붙여넣으면 표 교체다', () => {
+    // 여기서 null 이 나오면 브라우저 기본 붙여넣기가 실행돼 한 칸에 전부 쏟아진다
+    expect(clipboardForTablePaste(DOCS_HTML, DOCS_TSV, 'cell')).toEqual({ html: DOCS_HTML, text: null });
+  });
+
+  it('셀 안에 여러 줄 텍스트를 붙여넣는 건 그 칸의 일이다', () => {
+    expect(clipboardForTablePaste('<p>첫 줄</p><p>둘째 줄</p>', '첫 줄\n둘째 줄', 'cell')).toBeNull();
+    // 탭·다중 공백이 섞인 텍스트도 표로 오인하지 않는다 (표가 아닌 이상 칸의 것이다)
+    expect(clipboardForTablePaste(null, '가\t나\n다\t라', 'cell')).toBeNull();
+    expect(clipboardForTablePaste('', '가  나\n다  라', 'cell')).toBeNull();
+  });
+
+  it('표 영역에 붙여넣으면 탭 구분 텍스트도 표로 받는다', () => {
+    expect(clipboardForTablePaste(null, DOCS_TSV, 'outside')).toEqual({ html: null, text: DOCS_TSV });
+    expect(clipboardForTablePaste(DOCS_HTML, DOCS_TSV, 'outside')).toEqual({ html: DOCS_HTML, text: DOCS_TSV });
+  });
+
+  it('표 제목·작성자 칸에 붙여넣는 건 표와 무관하다', () => {
+    expect(clipboardForTablePaste(DOCS_HTML, DOCS_TSV, 'field')).toBeNull();
+  });
+
+  /**
+   * 크롬이 실제로 준 값(편집 중인 표를 드래그 복사).
+   * 칸에 친 값은 DOM 프로퍼티라 직렬화되지 않아 **빈 textarea** 만 실려온다.
+   */
+  const EDITING_COPY =
+    "<meta charset='utf-8'><table style=\"color: rgb(0, 0, 0);\">" +
+    '<thead><tr><th><textarea class="cell" rows="1"></textarea></th>' +
+    '<th><textarea class="cell" rows="1"></textarea></th></tr></thead>' +
+    '<tbody><tr><td><textarea class="cell" rows="1"></textarea></td>' +
+    '<td><textarea class="cell" rows="1"></textarea></td></tr></tbody></table>';
+
+  it('편집 중인 표를 긁어 복사한 것은 표로 되살릴 수 없다고 본다', () => {
+    expect(isEditingTableCopy(EDITING_COPY)).toBe(true);
+    // 값이 비어 있으니 파싱도 당연히 실패한다 — 그 자리에서 막아야 할 대상이다
+    expect(clipboardForTablePaste(EDITING_COPY, '값0\n값1\n값2', 'cell')).not.toBeNull();
+  });
+
+  it('바깥에서 온 표는 막지 않는다', () => {
+    expect(isEditingTableCopy(DOCS_HTML)).toBe(false);
+    // 엑셀에서 한 칸만 복사한 것도 그 칸에 그대로 들어가야 한다
+    expect(isEditingTableCopy('<table><tr><td>1,234</td></tr></table>')).toBe(false);
+    expect(isEditingTableCopy('<p>표 아님</p>')).toBe(false);
+    expect(isEditingTableCopy(null)).toBe(false);
+  });
+
+  it('클립보드에 표가 실렸는지는 <table> 로만 본다', () => {
+    expect(hasHtmlTable('<TABLE border="1"><tr><td>1</td></tr></TABLE>')).toBe(true);
+    expect(hasHtmlTable('<table>')).toBe(true);
+    expect(hasHtmlTable('<p>표 정리 결과</p>')).toBe(false);
+    expect(hasHtmlTable('<p>&lt;table&gt; 태그 설명</p>')).toBe(false);
+    expect(hasHtmlTable(null)).toBe(false);
+    expect(hasHtmlTable('')).toBe(false);
   });
 });

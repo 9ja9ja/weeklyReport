@@ -30,7 +30,7 @@ const NO_PEERS: DocPeer[] = [];
 export default function YTextArea({
   ytext, origin, readOnly, placeholder, className, style, peers = NO_PEERS, onFocus, onBlur
 }: Props) {
-  const { value, push, compositionProps } = useYTextBinding(ytext, origin);
+  const { value, push, compositionProps, endComposing } = useYTextBinding(ytext, origin);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // 내용에 맞춰 높이를 다시 잡는다. 원격 변경으로 줄 수가 바뀌어도 맞아야 한다.
@@ -54,7 +54,8 @@ export default function YTextArea({
         readOnly={readOnly}
         onChange={e => { if (!readOnly) push(e.target.value); }}
         onFocus={onFocus}
-        onBlur={onBlur}
+        // 조합 중에 칸을 떠나도 플래그가 굳지 않게 여기서도 풀어 준다
+        onBlur={() => { endComposing(); onBlur?.(); }}
         {...compositionProps}
         placeholder={placeholder}
         className={className}

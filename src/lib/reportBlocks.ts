@@ -225,6 +225,44 @@ export function unmergeCells(t: TableBlock, r: number, c: number): TableBlock {
 
 // ── 붙여넣기 파싱 ─────────────────────────────────────────────
 
+/** 붙여넣기가 일어난 자리 — 표의 칸 안인지, 제목·작성자 칸인지, 그 밖의 표 영역인지 */
+export type PasteSpot = 'cell' | 'field' | 'outside';
+
+/** 클립보드에 진짜 표가 실려 있는지 — 구글 독스·시트·엑셀·워드는 text/html 에 <table> 을 함께 준다 */
+export function hasHtmlTable(html: string | null | undefined): boolean {
+  return !!html && /<table[\s>]/i.test(html);
+}
+
+/**
+ * 편집 중인 표를 드래그해서 복사한 클립보드인지.
+ *
+ * 우리 편집기의 칸은 textarea 다. 브라우저는 복사할 때 **입력칸에 친 값을 실어주지 않아**
+ * (빈 <textarea> 만 남고 text/plain 은 열 구분 없는 줄 나열이 된다) 표로 되살릴 수 없다.
+ * 그대로 두면 칸 하나에 전체 텍스트가 쏟아지므로, 이 신호를 보고 막아야 한다.
+ * 표에 textarea 를 실어 보내는 건 우리 화면뿐이라 오탐이 없다.
+ */
+export function isEditingTableCopy(html: string | null | undefined): boolean {
+  return hasHtmlTable(html) && /<textarea[\s>]/i.test(html!);
+}
+
+/**
+ * 붙여넣기를 "표 교체"로 볼지 판단해, 표로 볼 때만 파싱할 원본을 돌려준다. (null = 표로 보지 않음)
+ *
+ * 표를 넣는 실제 동작은 "셀을 클릭하고 Ctrl+V" 라 커서가 셀 입력칸 안에 있다. 입력칸이라는
+ * 이유로 전부 흘려보내면 표 전체 텍스트가 한 칸에 쏟아지고, 반대로 전부 표로 받으면 한 칸에
+ * 여러 줄 메모를 붙여넣는 것까지 표를 갈아엎는다. 그래서 칸 안에서는 **진짜 표(<table>)일 때만**
+ * 표로 받는다. 표 제목·작성자 칸은 표와 무관하므로 언제나 그 칸의 일로 둔다.
+ */
+export function clipboardForTablePaste(
+  html: string | null | undefined,
+  text: string | null | undefined,
+  spot: PasteSpot
+): { html: string | null; text: string | null } | null {
+  if (spot === 'field') return null;
+  if (spot === 'outside') return { html: html ?? null, text: text ?? null };
+  return hasHtmlTable(html) ? { html: html ?? null, text: null } : null;
+}
+
 /**
  * 클립보드의 표를 파싱한다.
  * 구글 독스/시트·엑셀·워드에서 복사하면 text/html 에 <table> 이,

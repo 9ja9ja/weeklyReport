@@ -144,7 +144,8 @@ export default function Home() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             onKeyDown={e => {
-              if (e.key !== 'Enter') return;
+              // 한글 조합을 확정하는 Enter 가 먼저 올라온다 — 그대로 두면 이름을 다 치기도 전에 로그인 창이 뜬다
+              if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
               const q = search.trim();
               if (!q) return;
               const matches = teams.flatMap(t => t.users.filter(u => u.name.includes(q)).map(u => ({ u, tname: t.name })));
@@ -317,7 +318,8 @@ export default function Home() {
             </div>
             <div className="modal-body" style={{ textAlign: 'center' }}>
               <p style={{ marginBottom: '1.2rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>비밀번호를 입력해주세요</p>
-              <input type="password" value={loginPw} onChange={e => setLoginPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              {/* 버튼과 같은 조건을 건다 — 빈 비밀번호로 눌러 "일치하지 않습니다" 가 먼저 뜨는 일을 막는다 */}
+              <input type="password" value={loginPw} onChange={e => setLoginPw(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && loginPw.trim()) handleLogin(); }}
                 placeholder="비밀번호 (초기: 0000)" className="input-field" style={{ width: '100%', textAlign: 'center', fontSize: '1.1rem', padding: '0.8rem' }} autoFocus />
               {loginError && <p style={{ color: '#ef4444', fontSize: '0.85rem', marginTop: '0.5rem' }}>{loginError}</p>}
             </div>

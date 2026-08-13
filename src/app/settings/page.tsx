@@ -385,7 +385,7 @@ export default function SettingsPage() {
           ))}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
             <input type="text" value={newTeamDivision} onChange={e => setNewTeamDivision(e.target.value)} placeholder="구분 (예: Pharos)" className="input-field" style={{ width: '150px', padding: '0.4rem 0.6rem' }} />
-            <input type="text" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTeam()} placeholder="새 팀 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
+            <input type="text" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addTeam(); }} placeholder="새 팀 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
             <button onClick={addTeam} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>팀 추가</button>
           </div>
         </div>
@@ -446,7 +446,7 @@ export default function SettingsPage() {
             </div>
           ))}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-            <input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addUser()} placeholder="새 팀원 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
+            <input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addUser(); }} placeholder="새 팀원 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
             <button onClick={addUser} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>팀원 추가</button>
           </div>
           {isSuperAdmin && crossCandidates.length > 0 && (
@@ -510,7 +510,7 @@ export default function SettingsPage() {
           )}
           {isMasterOrAbove && (
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-              <input type="text" value={newPartName} onChange={e => setNewPartName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPart()} placeholder="새 파트 이름 (예: 내부, 핀테크)" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
+              <input type="text" value={newPartName} onChange={e => setNewPartName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addPart(); }} placeholder="새 파트 이름 (예: 내부, 핀테크)" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
               <button onClick={addPart} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>파트 추가</button>
             </div>
           )}
@@ -549,7 +549,7 @@ export default function SettingsPage() {
             </div>
           )}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-            <input type="text" value={newMajorName} onChange={e => setNewMajorName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addMajor()} placeholder="새 대분류 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
+            <input type="text" value={newMajorName} onChange={e => setNewMajorName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addMajor(); }} placeholder="새 대분류 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
             <button onClick={addMajor} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>추가</button>
           </div>
         </div>
@@ -588,7 +588,7 @@ export default function SettingsPage() {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                  <input type="text" value={newMiddle[major.name] || ''} onChange={e => setNewMiddle(prev => ({ ...prev, [major.name]: e.target.value }))} onKeyDown={e => e.key === 'Enter' && addCategory(major.name)} placeholder={`${major.name} 중분류 이름`} className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.85rem' }} />
+                  <input type="text" value={newMiddle[major.name] || ''} onChange={e => setNewMiddle(prev => ({ ...prev, [major.name]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addCategory(major.name); }} placeholder={`${major.name} 중분류 이름`} className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.85rem' }} />
                   <button onClick={() => addCategory(major.name)} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>추가</button>
                 </div>
               </div>

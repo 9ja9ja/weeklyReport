@@ -2,6 +2,7 @@
 
 import { useState, useLayoutEffect, useRef } from 'react';
 import PeerField from './PeerField';
+import { useDraftValue } from './useDraftValue';
 import type { DocPeer } from './useSharedDoc';
 import type { BlockPresence } from './usePresence';
 import { PART } from './usePresence';
@@ -19,6 +20,9 @@ import {
   isCovered,
   spanAt,
   parseClipboardTable,
+  clipboardForTablePaste,
+  isEditingTableCopy,
+  type PasteSpot,
   isNumericCell,
   isPlaceholderCell,
   numericCellColor,
@@ -57,7 +61,7 @@ const inputBase: React.CSSProperties = {
  * scrollHeight 로 매번 높이를 다시 잡아야 지우거나 붙여넣어도 정확히 맞는다.
  */
 function CellInput({
-  value, onChange, style, peers = NO_PEERS, ...rest
+  value, onChange, style, peers = NO_PEERS, onBlur, ...rest
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -66,10 +70,10 @@ function CellInput({
   peers?: DocPeer[];
 } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'style'>) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  // 한글 조합 중에는 바깥에서 온 값으로 되쓰지 않는다 — 조합이 깨져 글자가 튄다.
+  // 한글 조합 중에는 문서로 내보내지 않는다 — 자모 하나하나가 남에게 튀어 보인다.
   const composing = useRef(false);
-  const [draft, setDraft] = useState<string | null>(null);
-  const shown = draft ?? value;
+  // 보낸 값이 문서에서 돌아올 때까지 내가 친 값을 쥐고 있는다. 놓으면 글자가 사라진다.
+  const { shown, hold, release } = useDraftValue(value);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -87,19 +91,64 @@ function CellInput({
         onCompositionStart={() => { composing.current = true; }}
         onCompositionEnd={e => {
           composing.current = false;
-          setDraft(null);
-          onChange((e.target as HTMLTextAreaElement).value);
+          const v = (e.target as HTMLTextAreaElement).value;
+          hold(v);
+          onChange(v);
         }}
         onChange={e => {
           const v = e.target.value;
-          if (composing.current) { setDraft(v); return; }
-          setDraft(null);
+          hold(v);
+          if (composing.current) return;
           onChange(v);
+        }}
+        onBlur={e => {
+          // 조합 확정 없이 칸을 떠나는 경로가 있다(다른 칸 클릭, iOS WebView).
+          // 플래그가 굳으면 그 뒤 입력이 문서로 나가지 않으므로 여기서 풀고 마지막 값을 내보낸다.
+          if (composing.current) { composing.current = false; onChange(e.target.value); }
+          release();
+          onBlur?.(e);
         }}
         style={{ ...inputBase, ...style }}
         {...rest}
       />
     </PeerField>
+  );
+}
+
+/** 표 제목·작성자처럼 한 줄짜리 칸 — 셀과 같은 이유로 초안을 쥐고 있어야 한다 */
+function LineInput({
+  value, onChange, ...rest
+}: {
+  value: string;
+  onChange: (v: string) => void;
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  const composing = useRef(false);
+  const { shown, hold, release } = useDraftValue(value);
+  const { onBlur, ...others } = rest;
+
+  return (
+    <input
+      value={shown}
+      onCompositionStart={() => { composing.current = true; }}
+      onCompositionEnd={e => {
+        composing.current = false;
+        const v = (e.target as HTMLInputElement).value;
+        hold(v);
+        onChange(v);
+      }}
+      onChange={e => {
+        const v = e.target.value;
+        hold(v);
+        if (composing.current) return;
+        onChange(v);
+      }}
+      onBlur={e => {
+        if (composing.current) { composing.current = false; onChange(e.target.value); }
+        release();
+        onBlur?.(e);
+      }}
+      {...others}
+    />
   );
 }
 
@@ -204,16 +253,30 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
   /**
    * 표 붙여넣기.
    *
-   * 셀 안에 여러 줄 텍스트를 붙여넣는 것까지 "표"로 오인해 통째로 갈아엎던 문제가 있었다.
-   * 셀·제목 입력칸 안에서의 붙여넣기는 그 칸의 일이므로 건드리지 않고,
-   * 표 바깥 영역에 붙여넣었을 때만 표 교체로 본다.
+   * 사람들이 표를 넣는 방법은 "셀을 클릭하고 Ctrl+V" 다 — 커서는 셀 입력칸 안에 있다.
+   * 입력칸이라고 무조건 흘려보내면 표 전체 텍스트가 그 한 칸에 쏟아지므로,
+   * 칸 안에서는 진짜 표(<table>)일 때만 표 교체로 본다. 판정은 reportBlocks 에 있다.
    */
   const handlePaste = (e: React.ClipboardEvent) => {
-    const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    const spot: PasteSpot = tag === 'TEXTAREA' ? 'cell' : tag === 'INPUT' ? 'field' : 'outside';
     const html = e.clipboardData.getData('text/html');
-    const text = e.clipboardData.getData('text/plain');
-    if (applyClipboard(html, text)) e.preventDefault();
+    const src = clipboardForTablePaste(html, e.clipboardData.getData('text/plain'), spot);
+    if (!src) return;
+    if (applyClipboard(src.html, src.text)) {
+      e.preventDefault();
+      return;
+    }
+    // 편집 중인 표를 긁어 복사한 것 — 브라우저가 칸 값을 안 실어줘 되살릴 수 없다.
+    // 막지 않으면 칸 하나에 줄 나열이 통째로 쏟아진다.
+    if (isEditingTableCopy(html)) {
+      e.preventDefault();
+      alert(
+        '편집 중인 표는 브라우저가 칸의 값을 복사해 주지 않아 그대로 붙여넣을 수 없습니다.\n' +
+        '[지난 주 작성본]에 보이는 표나 구글 독스·엑셀의 표를 복사해 주세요.\n' +
+        '(금주 → 차주는 [금주내용 복사] 버튼을 쓰시면 됩니다)'
+      );
+    }
   };
 
   return (
@@ -243,9 +306,9 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
           표
         </span>
         <PeerField peers={peersAt(PART.caption)} style={{ flex: 1, minWidth: 0 }}>
-          <input
+          <LineInput
             value={block.caption}
-            onChange={e => op.setCaption(e.target.value)}
+            onChange={v => op.setCaption(v)}
             {...focusAt(PART.caption)}
             placeholder="표 제목 (예: 문의 대응)"
             className="input-field"
@@ -263,9 +326,9 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
         {onAuthorChange && (
           <>
             <span style={{ color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>[</span>
-            <input
+            <LineInput
               value={block.authorText || ''}
-              onChange={e => onAuthorChange(e.target.value)}
+              onChange={v => onAuthorChange(v)}
               className="input-field"
               style={{
                 width: '58px',
@@ -427,7 +490,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
         </button>
         <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
           셀 안에서 Enter 로 줄바꿈 · 셀 클릭 후 Shift+클릭으로 범위를 잡아 병합 ·
-          구글 독스·엑셀 표를 복사해 이 영역에 Ctrl+V 하면 제목줄까지 그대로 들어옵니다.
+          구글 독스·엑셀 표를 복사해 셀에 Ctrl+V 하면 제목줄까지 그대로 들어옵니다.
         </span>
       </div>
 
@@ -440,6 +503,9 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
             value={pasteText}
             onChange={e => setPasteText(e.target.value)}
             onPaste={e => {
+              // 이 상자의 붙여넣기는 이 상자가 끝까지 처리한다.
+              // 바깥(표 영역) 핸들러까지 올라가면 같은 붙여넣기를 두 번 적용하려 든다.
+              e.stopPropagation();
               const html = e.clipboardData.getData('text/html');
               const text = e.clipboardData.getData('text/plain');
               if (applyClipboard(html, text)) {

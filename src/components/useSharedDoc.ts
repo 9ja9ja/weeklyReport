@@ -336,15 +336,26 @@ export function useYTextBinding(ytext: Y.Text | null, origin?: unknown) {
     }, origin);
   }, [ytext, commit, origin]);
 
+  /**
+   * 조합을 끝내고 문서 값으로 맞춘다.
+   *
+   * compositionend 가 오지 않는 경로가 있다(조합 중 마우스로 다른 칸 클릭, iOS WebView,
+   * 잠금으로 입력칸이 통째로 사라지는 경우). 그때 플래그가 true 로 굳으면 이 칸은
+   * 그 뒤로 원격 변경을 영영 반영하지 못하고, 다음 입력의 diff 기준까지 어긋난다.
+   * 그래서 칸을 떠날 때도 반드시 풀어 준다.
+   */
+  const endComposing = useCallback(() => {
+    if (!composing.current) return;
+    composing.current = false;
+    if (ytext) commit(ytext.toString());
+  }, [ytext, commit]);
+
   const compositionProps = {
     onCompositionStart: () => { composing.current = true; },
-    onCompositionEnd: () => {
-      composing.current = false;
-      if (ytext) commit(ytext.toString());
-    }
+    onCompositionEnd: endComposing
   };
 
-  return { value, push, compositionProps };
+  return { value, push, compositionProps, endComposing };
 }
 
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
