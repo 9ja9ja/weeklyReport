@@ -46,6 +46,14 @@ export interface WriteOps {
   /** 공동 편집에서 텍스트 입력을 직접 묶을 Y.Text (개인 작성이면 null) */
   subText(catId: number, side: Side, blockId: string): Y.Text | null;
   bulletText(catId: number, side: Side, blockId: string, bulletId: string): Y.Text | null;
+  captionText(catId: number, side: Side, blockId: string): Y.Text | null;
+  /**
+   * 표의 행·열 id (개인 작성이면 null).
+   *
+   * 화면이 행·열을 인덱스로 그리면, 남이 위에 행을 끼워 넣는 순간 React 가 입력칸을
+   * 한 칸씩 밀어 재사용해 내 커서와 조합이 엉뚱한 칸으로 옮겨간다. id 를 key 로 준다.
+   */
+  tableKeys(catId: number, side: Side, blockId: string): { rows: string[]; cols: string[] } | null;
 }
 
 // ── 개인 작성 (기존 방식) ─────────────────────────────────────
@@ -136,7 +144,9 @@ export function localWriteOps(setState: SetState, readOnly: boolean): WriteOps {
       replaceAll: (headers, rows) => updateTable(catId, side, blockId, t => ({ ...t, headers, rows, merges: undefined }))
     }),
     subText: () => null,
-    bulletText: () => null
+    bulletText: () => null,
+    captionText: () => null,
+    tableKeys: () => null
   };
 }
 
@@ -274,6 +284,16 @@ export function sharedWriteOps(
       const bm = bullets.get(bulletId);
       const t = bm instanceof Y.Map ? bm.get(BLOCK.text) : null;
       return t instanceof Y.Text ? t : null;
+    },
+    captionText: (catId, side, blockId) => {
+      const b = blockMap(doc, catId, side, blockId);
+      const t = b?.get(BLOCK.caption);
+      return t instanceof Y.Text ? t : null;
+    },
+    tableKeys: (catId, side, blockId) => {
+      const b = blockMap(doc, catId, side, blockId);
+      if (!b) return null;
+      return { rows: ops.rowIds(b), cols: ops.colIds(b) };
     }
   };
 }

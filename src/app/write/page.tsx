@@ -409,6 +409,11 @@ function WriteContent() {
               onChange={() => { /* ops 를 주므로 통째 교체 경로는 쓰이지 않는다 */ }}
               ops={ops.tableOps(catId, type, block.id)}
               presence={ops.collaborative ? presence.block(catId, type, block.id) : undefined}
+              // 제목은 Y.Text 에 직접 묶고, 행·열은 문서 id 를 key 로 준다 (공동 편집일 때만 값이 온다)
+              captionText={ops.captionText(catId, type, block.id)}
+              origin={rt.origin}
+              rowKeys={ops.tableKeys(catId, type, block.id)?.rows}
+              colKeys={ops.tableKeys(catId, type, block.id)?.cols}
               onRemove={() => ops.removeBlock(catId, type, block.id)}
             />;
       }

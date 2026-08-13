@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useLayoutEffect, useRef } from 'react';
+import type * as Y from 'yjs';
 import PeerField from './PeerField';
+import YLineInput from './YLineInput';
 import { useDraftValue } from './useDraftValue';
 import type { DocPeer } from './useSharedDoc';
 import type { BlockPresence } from './usePresence';
@@ -36,6 +38,17 @@ const cellBase: React.CSSProperties = {
   padding: 0,
   minWidth: '60px',
   verticalAlign: 'middle'
+};
+
+/** 표 제목 칸 — 공동 편집(Y.Text 바인딩)과 개인 작성이 같은 모양이어야 한다 */
+const captionStyle: React.CSSProperties = {
+  width: '100%',
+  fontSize: '0.82rem',
+  fontWeight: 600,
+  padding: '0.2rem 0.3rem',
+  border: 'none',
+  borderBottom: '1px solid var(--border)',
+  background: 'transparent'
 };
 
 const inputBase: React.CSSProperties = {
@@ -192,6 +205,19 @@ interface EditorProps {
   ops?: TableOps;
   /** 공동 편집일 때만 준다 — 누가 어느 칸에 있는지 표시한다 */
   presence?: BlockPresence;
+  /**
+   * 공동 편집일 때만 준다 — 제목을 문서의 Y.Text 에 직접 묶는다.
+   * 값을 통째로 되쓰면 같은 순간 상대가 친 글자까지 지워진다.
+   */
+  captionText?: Y.Text | null;
+  origin?: unknown;
+  /**
+   * 공동 편집일 때만 준다 — 행·열의 문서상 id.
+   * 인덱스를 key 로 쓰면 남이 위에 행을 끼워 넣는 순간 입력칸이 한 칸씩 밀려 재사용돼
+   * 내 커서와 한글 조합이 엉뚱한 칸으로 옮겨간다.
+   */
+  rowKeys?: string[];
+  colKeys?: string[];
 }
 
 /** 병합할 범위 — 시작칸과 끝칸 */
@@ -201,7 +227,10 @@ const inRange = (sel: CellRange | null, r: number, c: number) =>
   !!sel && r >= Math.min(sel.r1, sel.r2) && r <= Math.max(sel.r1, sel.r2)
         && c >= Math.min(sel.c1, sel.c2) && c <= Math.max(sel.c1, sel.c2);
 
-export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, ops, presence }: EditorProps) {
+export function TableBlockEditor({
+  block, onChange, onRemove, onAuthorChange, ops, presence,
+  captionText, origin, rowKeys, colKeys
+}: EditorProps) {
   /** 공동 편집이 아니면 아무것도 표시하지 않는다 */
   const peersAt = (part: string) => presence?.peers(part) ?? NO_PEERS;
   const focusAt = (part: string) => presence?.focusProps(part);
@@ -306,22 +335,26 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
           표
         </span>
         <PeerField peers={peersAt(PART.caption)} style={{ flex: 1, minWidth: 0 }}>
-          <LineInput
-            value={block.caption}
-            onChange={v => op.setCaption(v)}
-            {...focusAt(PART.caption)}
-            placeholder="표 제목 (예: 문의 대응)"
-            className="input-field"
-            style={{
-              width: '100%',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              padding: '0.2rem 0.3rem',
-              border: 'none',
-              borderBottom: '1px solid var(--border)',
-              background: 'transparent'
-            }}
-          />
+          {/* 공동 편집이면 제목도 문서의 Y.Text 에 직접 묶는다 — 통째 교체는 상대 글자를 지운다 */}
+          {captionText ? (
+            <YLineInput
+              ytext={captionText}
+              origin={origin}
+              {...focusAt(PART.caption)}
+              placeholder="표 제목 (예: 문의 대응)"
+              className="input-field"
+              style={captionStyle}
+            />
+          ) : (
+            <LineInput
+              value={block.caption}
+              onChange={v => op.setCaption(v)}
+              {...focusAt(PART.caption)}
+              placeholder="표 제목 (예: 문의 대응)"
+              className="input-field"
+              style={captionStyle}
+            />
+          )}
         </PeerField>
         {onAuthorChange && (
           <>
@@ -355,7 +388,7 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
           <thead>
             <tr>
               {block.headers.map((h, c) => (
-                <th key={c} style={{ ...cellBase, background: 'var(--btn-bg)', position: 'relative' }}>
+                <th key={colKeys?.[c] ?? c} style={{ ...cellBase, background: 'var(--btn-bg)', position: 'relative' }}>
                   <CellInput
                     value={h}
                     onChange={v => op.setHeader(c, v)}
@@ -394,14 +427,14 @@ export function TableBlockEditor({ block, onChange, onRemove, onAuthorChange, op
           </thead>
           <tbody>
             {block.rows.map((row, r) => (
-              <tr key={r}>
+              <tr key={rowKeys?.[r] ?? r}>
                 {row.map((v, c) => {
                   if (isCovered(block, r, c)) return null;   // 다른 칸이 덮고 있다
                   const { rowSpan, colSpan } = spanAt(block, r, c);
                   const picked = inRange(sel, r, c);
                   return (
                     <td
-                      key={c}
+                      key={colKeys?.[c] ?? c}
                       rowSpan={rowSpan}
                       colSpan={colSpan}
                       onMouseDown={e => pickCell(e, r, c)}

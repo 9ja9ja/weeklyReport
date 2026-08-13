@@ -92,9 +92,31 @@ export function useBriefRealtime(
     let doc: Y.Doc | null = null;
     /** 연속 토큰 실패 횟수 — 권한이 사라졌는데 무한 재접속만 도는 상황을 끊는다 */
     let tokenFailures = 0;
+    /** 서버 문서를 한 번이라도 받아 실시간으로 편집하고 있었는가 */
+    let wasLive = false;
+
+    /**
+     * 실시간으로 편집하던 중에 연결이 끊긴 경우.
+     *
+     * 여기서 기존 방식으로 내려가면 에디터가 통째로 다시 만들어지며 **페이지를 열 때 받아 둔
+     * HTML** 로 갈아끼워진다 — 그동안 여럿이 쓴 내용이 화면에서 사라지고, 이어서 친 내용은
+     * 서버가 공동 편집 주차라며 거부해 그대로 버려진다. 보고 있던 문서는 그대로 두고
+     * 편집만 막은 뒤 새로고침을 안내한다.
+     */
+    const holdDisconnected = (reason: string) => {
+      if (disposed) return;
+      provider?.disconnect();   // 토큰 없이 붙는 401 재접속 루프를 끊는다
+      setState(s => ({
+        ...s,
+        readOnly: true,
+        notice: reason || '실시간 연결이 끊겼습니다. 새로고침해주세요.'
+      }));
+    };
 
     const toLegacy = (reason: string) => {
       if (disposed) return;
+      // 이미 실시간으로 편집하던 중이면 기존 방식으로 내려가지 않는다 (내용이 되돌아간다)
+      if (wasLive) { holdDisconnected(reason); return; }
       provider?.destroy();
       doc?.destroy();
       provider = null;
@@ -199,7 +221,8 @@ export function useBriefRealtime(
 
       provider.on('status', (e: { status: string }) => patch({ connected: e.status === 'connected' }));
       // 한 번 받으면 내려가지 않는다. 순단으로 편집이 막히면 안 된다.
-      provider.on('sync', (isSynced: boolean) => { if (isSynced) patch({ synced: true }); });
+      // 서버 문서를 받은 뒤로는 "실시간으로 편집 중"이다 — 끊겨도 기존 방식으로 되돌리지 않는다
+      provider.on('sync', (isSynced: boolean) => { if (isSynced) { wasLive = true; patch({ synced: true }); } });
       provider.awareness.on('change', () => patch({ peers: readPeers() }));
 
       provider.on('custom-message', (raw: string) => {

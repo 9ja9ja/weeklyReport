@@ -82,9 +82,30 @@ export function useSharedDoc(
     let doc: Y.Doc | null = null;
     let undo: Y.UndoManager | null = null;
     let tokenFailures = 0;
+    /** 서버 문서를 한 번이라도 받아 실시간으로 편집하고 있었는가 */
+    let wasLive = false;
+
+    /**
+     * 실시간으로 편집하던 중에 연결이 끊긴 경우.
+     *
+     * 기존 방식으로 내려가면 화면이 **페이지를 열 때 받아 둔 개인 보고**로 갈아끼워져
+     * 그동안 팀이 함께 쓴 내용이 사라져 보이고, 이어서 친 내용은 서버가 공동 편집 주차라며
+     * 거부한다(409). 보고 있던 문서는 그대로 두고 편집만 막은 뒤 새로고침을 안내한다.
+     */
+    const holdDisconnected = (reason: string) => {
+      if (disposed) return;
+      provider?.disconnect();   // 토큰 없이 붙는 401 재접속 루프를 끊는다
+      setState(s => ({
+        ...s,
+        readOnly: true,
+        notice: reason || '실시간 연결이 끊겼습니다. 새로고침해주세요.'
+      }));
+    };
 
     const toLegacy = (reason: string) => {
       if (disposed) return;
+      // 이미 실시간으로 편집하던 중이면 기존 방식으로 내려가지 않는다 (내용이 되돌아간다)
+      if (wasLive) { holdDisconnected(reason); return; }
       undo?.destroy();
       provider?.destroy();
       doc?.destroy();
@@ -179,7 +200,8 @@ export function useSharedDoc(
       };
 
       provider.on('status', (e: { status: string }) => patch({ connected: e.status === 'connected' }));
-      provider.on('sync', (ok: boolean) => { if (ok) patch({ synced: true }); });
+      // 서버 문서를 받은 뒤로는 "실시간으로 편집 중"이다 — 끊겨도 기존 방식으로 되돌리지 않는다
+      provider.on('sync', (ok: boolean) => { if (ok) { wasLive = true; patch({ synced: true }); } });
       provider.awareness.on('change', () => patch({ peers: readPeers() }));
 
       provider.on('custom-message', (raw: string) => {
