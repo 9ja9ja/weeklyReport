@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as Y from 'yjs';
 import YProvider from 'y-partyserver/provider';
+import { applyLocalEdit } from './useSharedDoc';
 
 export type BriefMode = 'loading' | 'legacy' | 'realtime';
 
@@ -385,28 +386,31 @@ export function useYText(ytext: Y.Text | null) {
     const prev = valueRef.current;
     commit(next);
     if (!ytext || prev === next) return;
+    // 조합 중에는 원격 변경이 화면에 안 얹혀 좌표가 어긋난다 — 작성 화면과 같은 보정을 쓴다
+    applyLocalEdit(ytext, prev, next);
+  }, [ytext, commit]);
 
-    const { index, removed, added } = textDiff(prev, next);
-    const len = ytext.length;
-    // 원격 편집으로 Y.Text 가 로컬 값보다 짧아졌을 수 있다. 범위를 벗어나면 예외가 난다.
-    const at = Math.min(index, len);
-    const del = Math.min(removed, len - at);
-
-    ytext.doc?.transact(() => {
-      if (del > 0) ytext.delete(at, del);
-      if (added) ytext.insert(at, added);
-    });
+  /**
+   * 조합을 끝내고 문서 값으로 맞춘다.
+   *
+   * compositionend 가 오지 않는 경로가 있다 — 조합 중 마우스로 빠져나가거나,
+   * 잠금·연결 끊김으로 제목 입력칸이 통째로 사라지는 경우다. 훅은 페이지와 함께 살아 있어
+   * 플래그가 true 로 굳으면 그 뒤 원격 제목이 영영 반영되지 않고, 다음 입력의 diff 기준도 어긋나
+   * 엉뚱한 위치에 글자가 끼어든다. 그래서 blur·언마운트에서도 반드시 풀어 준다.
+   */
+  const endComposing = useCallback(() => {
+    if (!composing.current) return;
+    composing.current = false;
+    if (ytext) commit(ytext.toString());
   }, [ytext, commit]);
 
   const compositionProps = {
     onCompositionStart: () => { composing.current = true; },
-    onCompositionEnd: () => {
-      composing.current = false;
-      if (ytext) commit(ytext.toString());
-    }
+    onCompositionEnd: endComposing,
+    onBlur: endComposing
   };
 
-  return { value, push, compositionProps };
+  return { value, push, compositionProps, endComposing };
 }
 
 /**

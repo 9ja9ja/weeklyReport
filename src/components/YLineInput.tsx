@@ -26,10 +26,12 @@ interface Props {
 export default function YLineInput({
   ytext, origin, readOnly, placeholder, className, style, onFocus, onBlur
 }: Props) {
-  const { value, push, compositionProps, endComposing } = useYTextBinding(ytext, origin);
+  const { value, push, compositionProps, endComposing, elRef } = useYTextBinding(ytext, origin);
 
   return (
     <input
+      // 원격 변경이 들어와도 내 커서가 끝으로 튀지 않게 훅이 이 노드를 본다
+      ref={el => { elRef.current = el; }}
       value={value}
       readOnly={readOnly}
       onChange={e => { if (!readOnly) push(e.target.value); }}

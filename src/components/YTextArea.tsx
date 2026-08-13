@@ -30,7 +30,7 @@ const NO_PEERS: DocPeer[] = [];
 export default function YTextArea({
   ytext, origin, readOnly, placeholder, className, style, peers = NO_PEERS, onFocus, onBlur
 }: Props) {
-  const { value, push, compositionProps, endComposing } = useYTextBinding(ytext, origin);
+  const { value, push, compositionProps, endComposing, elRef } = useYTextBinding(ytext, origin);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // 내용에 맞춰 높이를 다시 잡는다. 원격 변경으로 줄 수가 바뀌어도 맞아야 한다.
@@ -48,7 +48,8 @@ export default function YTextArea({
   return (
     <PeerField peers={peers} style={{ flex, minWidth: 0 }}>
       <textarea
-        ref={ref}
+        // 높이 조절용 ref 와 커서 보존용 ref 가 같은 노드를 본다
+        ref={el => { ref.current = el; elRef.current = el; }}
         rows={1}
         value={value}
         readOnly={readOnly}

@@ -74,11 +74,18 @@ const inputBase: React.CSSProperties = {
  * scrollHeight 로 매번 높이를 다시 잡아야 지우거나 붙여넣어도 정확히 맞는다.
  */
 function CellInput({
-  value, onChange, style, peers = NO_PEERS, onBlur, ...rest
+  value, onChange, style, styleOf, peers = NO_PEERS, onBlur, ...rest
 }: {
   value: string;
   onChange: (v: string) => void;
   style?: React.CSSProperties;
+  /**
+   * 화면에 보이는 값 기준으로 계산하는 스타일.
+   *
+   * 정렬·색을 바깥의 스냅샷 값으로 계산하면 조합이 끝나거나 문서가 따라잡는 순간
+   * 글자가 좌우로 튄다 — 보이는 글자와 그 글자의 스타일은 같은 값에서 나와야 한다.
+   */
+  styleOf?: (v: string) => React.CSSProperties;
   /** 지금 이 칸을 쓰고 있는 다른 사람들 */
   peers?: DocPeer[];
 } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'style'>) {
@@ -121,7 +128,7 @@ function CellInput({
           release();
           onBlur?.(e);
         }}
-        style={{ ...inputBase, ...style }}
+        style={{ ...inputBase, ...style, ...(styleOf ? styleOf(shown) : null) }}
         {...rest}
       />
     </PeerField>
@@ -453,7 +460,7 @@ export function TableBlockEditor({
                           focusAt(PART.cell(r, c))?.onFocus();
                         }}
                         onBlur={() => focusAt(PART.cell(r, c))?.onBlur()}
-                        style={cellStyle(v)}
+                        styleOf={cellStyle}
                       />
                     </td>
                   );

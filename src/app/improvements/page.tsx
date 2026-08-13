@@ -47,6 +47,14 @@ export default function ImprovementsPage() {
   const [filterCategory, setFilterCategory] = useState('');
   const [mine, setMine] = useState(false);
   const [q, setQ] = useState('');
+  /**
+   * 실제로 서버에 나가는 검색어.
+   *
+   * q 를 그대로 조회에 쓰면 한글 조합 중 자모('ㅈ','저','정')마다 요청이 나가
+   * 목록이 계속 깜빡이고 미완성 글자로 검색된다. 조합이 끝난 뒤 잠깐 쉬면 반영한다.
+   */
+  const [qApplied, setQApplied] = useState('');
+  const [composingQ, setComposingQ] = useState(false);
 
   const [writing, setWriting] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -70,15 +78,21 @@ export default function ImprovementsPage() {
       if (filterStatus) p.set('status', filterStatus);
       if (filterCategory) p.set('category', filterCategory);
       if (mine) p.set('mine', 'true');
-      if (q.trim()) p.set('q', q.trim());
+      if (qApplied.trim()) p.set('q', qApplied.trim());
       const res = await fetch(`/api/improvements?${p}`);
       const d = await res.json();
       setItems(Array.isArray(d.items) ? d.items : []);
     } catch { setItems([]); }
     finally { setLoading(false); }
-  }, [filterStatus, filterCategory, mine, q]);
+  }, [filterStatus, filterCategory, mine, qApplied]);
 
   useEffect(() => { if (userId) load(); }, [userId, load]);
+
+  useEffect(() => {
+    if (composingQ) return;                       // 조합 중에는 예약조차 하지 않는다
+    const t = setTimeout(() => setQApplied(q), 300);
+    return () => clearTimeout(t);
+  }, [q, composingQ]);
 
   // 담당자 지정용 명단 — 관리자만 필요하다
   useEffect(() => {
@@ -88,13 +102,19 @@ export default function ImprovementsPage() {
     }).catch(() => {});
   }, [isMasterOrAbove]);
 
+  /** 상세만 다시 읽는다 — 쓰고 있던 댓글은 건드리지 않는다 */
+  const fetchDetail = async (id: number) => {
+    const res = await fetch(`/api/improvements/${id}/comments`);
+    const d = await res.json();
+    if (res.ok) setDetail(d.item);
+  };
+
+  /** 다른 요청을 새로 열 때만 쓴다 (댓글 입력칸을 비운다) */
   const openDetail = async (id: number) => {
     setOpenId(id);
     setDetail(null);
     setCommentBody('');
-    const res = await fetch(`/api/improvements/${id}/comments`);
-    const d = await res.json();
-    if (res.ok) setDetail(d.item);
+    await fetchDetail(id);
   };
 
   const submitNew = async () => {
@@ -120,7 +140,8 @@ export default function ImprovementsPage() {
       });
       if (!res.ok) { alert((await res.json()).error ?? '변경에 실패했습니다.'); return false; }
       load();
-      if (openId) await openDetail(openId);
+      // 상태·담당만 바꾼 것이다 — 쓰고 있던 댓글을 지우면 안 된다
+      if (openId) await fetchDetail(openId);
       return true;
     } finally { setBusy(false); }
   };
@@ -135,7 +156,7 @@ export default function ImprovementsPage() {
       });
       if (!res.ok) { alert((await res.json()).error ?? '등록에 실패했습니다.'); return; }
       setCommentBody('');
-      await openDetail(openId);
+      await fetchDetail(openId);
       load();
     } finally { setBusy(false); }
   };
@@ -223,6 +244,8 @@ export default function ImprovementsPage() {
           <input
             value={q}
             onChange={e => setQ(e.target.value)}
+            onCompositionStart={() => setComposingQ(true)}
+            onCompositionEnd={e => { setComposingQ(false); setQ(e.currentTarget.value); }}
             placeholder="검색"
             className="input-field"
             style={{ width: '160px', padding: '0.3rem 0.5rem', marginLeft: 'auto' }}

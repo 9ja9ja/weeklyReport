@@ -258,8 +258,16 @@ export default function OverviewPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ fontSize: '0.85rem' }}>연도 <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value, 10))} className="input-field" style={{ width: '80px', marginLeft: '0.3rem', padding: '0.3rem' }} /></label>
-          <label style={{ fontSize: '0.85rem' }}>주차 <input type="number" value={weekNum} onChange={e => setWeekNum(parseInt(e.target.value, 10))} className="input-field" style={{ width: '70px', marginLeft: '0.3rem', padding: '0.3rem' }} /></label>
+          {/* 타이핑 중간값·빈 칸(parseInt('') = NaN)이 그대로 조회로 나가면 표가 사라지고
+              "NaN년 NaN주차" 가 된다. 작성 화면과 같이 입력을 마친 뒤(blur/Enter)에만 반영한다 */}
+          <label style={{ fontSize: '0.85rem' }}>연도 <input type="number" defaultValue={year} key={`y${year}`}
+            onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 2000 && v <= 2100) setYear(v); else e.target.value = String(year); }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            className="input-field" style={{ width: '80px', marginLeft: '0.3rem', padding: '0.3rem' }} /></label>
+          <label style={{ fontSize: '0.85rem' }}>주차 <input type="number" defaultValue={weekNum} key={`w${weekNum}`}
+            onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v <= 53) setWeekNum(v); else e.target.value = String(weekNum); }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            className="input-field" style={{ width: '70px', marginLeft: '0.3rem', padding: '0.3rem' }} /></label>
           <button onClick={fetchData} className="btn btn-primary" style={{ padding: '0.4rem 1.2rem' }}>조회</button>
         </div>
       </div>

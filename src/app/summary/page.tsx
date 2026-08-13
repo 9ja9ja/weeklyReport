@@ -43,6 +43,24 @@ interface ReportItem {
   nextContents: string | ContentBlock[];
 }
 
+/**
+ * 내용에 맞춰 textarea 높이를 잡는다.
+ *
+ * **모듈 스코프에 둔다** — 컴포넌트 안에서 정의하면 매 렌더 함수 정체성이 바뀌어
+ * ref={autoResize} 가 화면의 모든 입력칸에서 해제·부착을 반복하며 강제 레이아웃을 일으킨다
+ * (항목이 많은 취합본에서 키 입력마다 눈에 띄게 밀린다).
+ */
+const autoResize = (el: HTMLTextAreaElement | null) => {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+};
+
+/** 화면의 모든 입력칸 높이를 다시 잡는다 (값이 입력 이벤트 없이 바뀐 뒤에 쓴다) */
+const resizeAllTextareas = () => {
+  document.querySelectorAll<HTMLTextAreaElement>('.summary-table textarea').forEach(autoResize);
+};
+
 export default function SummaryPage() {
   // 월·화는 지난주, 수~일은 이번주로 연다
   const defaultWeek = getDefaultWeek();
@@ -174,15 +192,20 @@ export default function SummaryPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // 실행취소·다시실행은 입력 이벤트 없이 값이 바뀐다 — 입력칸 높이를 한 번 다시 잡아 준다
+  // (ref 를 모듈 스코프로 고정한 뒤로는 렌더마다 저절로 재계산되지 않는다)
+  const undoAndResize = useCallback(() => { undo(); requestAnimationFrame(resizeAllTextareas); }, [undo]);
+  const redoAndResize = useCallback(() => { redo(); requestAnimationFrame(resizeAllTextareas); }, [redo]);
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (!isEditMode) return;
-      if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
-      if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+      if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undoAndResize(); }
+      if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redoAndResize(); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [undo, redo, isEditMode]);
+  }, [undoAndResize, redoAndResize, isEditMode]);
 
   const handleReset = async () => {
     if (isLocked) return;
@@ -387,12 +410,6 @@ export default function SummaryPage() {
     });
   };
 
-  const autoResize = (el: HTMLTextAreaElement | null) => {
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  };
-
   // 데이터 로드 후 모든 textarea 높이 재계산
   // double RAF: 1차 RAF에서 레이아웃 계산 → 2차 RAF에서 높이 적용
   useEffect(() => {
@@ -402,10 +419,7 @@ export default function SummaryPage() {
       if (cancelled) return;
       requestAnimationFrame(() => {
         if (cancelled) return;
-        document.querySelectorAll<HTMLTextAreaElement>('.summary-table textarea').forEach(ta => {
-          ta.style.height = 'auto';
-          ta.style.height = `${ta.scrollHeight}px`;
-        });
+        resizeAllTextareas();
       });
     });
     return () => { cancelled = true; };
@@ -431,8 +445,8 @@ export default function SummaryPage() {
     });
   };
 
-  /** 취합본 편집용 + 소분류 / + 표 */
-  const AddBlockBar = ({ catId, type }: { catId: number; type: 'current' | 'next' }) => (
+  /** 취합본 편집용 + 소분류 / + 표 (컴포넌트로 두면 렌더마다 새 타입이라 버튼이 재마운트된다) */
+  const renderAddBlockBar = (catId: number, type: 'current' | 'next') => (
     <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
       <button onClick={() => addSub(catId, type)} className="btn" style={{ fontSize: '0.75rem', background: 'var(--btn-bg)', color: 'var(--foreground)', opacity: 0.6 }}>+ 소분류</button>
       <button onClick={() => addTable(catId, type)} className="btn" style={{ fontSize: '0.75rem', background: 'var(--btn-bg)', color: 'var(--foreground)', opacity: 0.6 }}>+ 표</button>
@@ -541,8 +555,8 @@ export default function SummaryPage() {
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         {isEditMode && <>
           <button onClick={handleReset} className="btn" style={{ fontSize: '0.9rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}>⟲ 원본 재조회</button>
-          <button onClick={undo} disabled={!canUndo} className="btn" style={{ fontSize: '0.9rem' }}>↶ 실행취소</button>
-          <button onClick={redo} disabled={!canRedo} className="btn" style={{ fontSize: '0.9rem' }}>↷ 다시실행</button>
+          <button onClick={undoAndResize} disabled={!canUndo} className="btn" style={{ fontSize: '0.9rem' }}>↶ 실행취소</button>
+          <button onClick={redoAndResize} disabled={!canRedo} className="btn" style={{ fontSize: '0.9rem' }}>↷ 다시실행</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ padding: '0.4rem 2rem', fontSize: '1rem' }}>{saving ? '저장중...' : '저장'}</button>
         </>}
         {isMasterOrAbove && (
@@ -605,11 +619,11 @@ export default function SummaryPage() {
                     <td style={{ fontWeight: 500 }}>({row.midIdx + 1}) {row.cat.middle}</td>
                     <td style={{ verticalAlign: 'top' }}>
                       {renderEditBlocks(row.cat.id, 'current', data.current)}
-                      <AddBlockBar catId={row.cat.id} type="current" />
+                      {renderAddBlockBar(row.cat.id, 'current')}
                     </td>
                     <td style={{ verticalAlign: 'top' }}>
                       {renderEditBlocks(row.cat.id, 'next', data.next)}
-                      <AddBlockBar catId={row.cat.id} type="next" />
+                      {renderAddBlockBar(row.cat.id, 'next')}
                     </td>
                   </tr>
                 );

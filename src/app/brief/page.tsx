@@ -153,8 +153,10 @@ export default function BriefPage() {
       const data = await res.json();
       if (data.brief && data.brief.content) {
         if (live) {
-          // 공동 편집 중에는 문서 자체를 바꿔야 다른 사람 화면에도 반영된다
-          editor?.commands.setContent(data.brief.content);
+          // 공동 편집 중에는 문서 자체를 바꿔야 다른 사람 화면에도 반영된다.
+          // preserveWhitespace 가 없으면 공백으로 만든 계단식 들여쓰기가 파싱에서 접힌다
+          // (개인 작성 경로는 BriefEditor 안에서 같은 옵션으로 넣고 있다)
+          editor?.commands.setContent(data.brief.content, { parseOptions: { preserveWhitespace: 'full' } });
           yTitle.push(data.brief.title ?? '');
           setMsg('전주차 내용을 복사했습니다.');
           setTimeout(() => setMsg(''), 3000);
@@ -240,6 +242,11 @@ export default function BriefPage() {
       ? (!rt.readOnly && rt.synced)                      // 서버 문서를 받고 쓰기 권한이 있을 때만
       : (isMasterOrAbove && !isLocked);
   const shownTitle = live ? yTitle.value : title;
+
+  // 잠금·연결 끊김으로 제목 입력칸이 사라지면 compositionend 가 오지 않아 조합 플래그가 굳는다.
+  // 굳으면 그 뒤 원격 제목이 반영되지 않고, 다음 입력이 엉뚱한 위치에 끼어든다.
+  const endTitleComposing = yTitle.endComposing;
+  useEffect(() => { if (!editable) endTitleComposing(); }, [editable, endTitleComposing]);
 
   if (isHydrating || !userId) return null;
 

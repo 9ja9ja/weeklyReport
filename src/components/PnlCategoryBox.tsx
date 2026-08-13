@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { PNL_METRICS, formatPnlAmount, pnlDelta, PnlCategoryInput } from '@/lib/pnlParser';
 
 interface Props {
@@ -10,28 +10,56 @@ interface Props {
   onDelete: () => void;
 }
 
+/** 앞에서 n번째 숫자 바로 뒤 위치 — 콤마 자리가 밀려도 커서를 같은 숫자 옆에 둔다 */
+function caretAfterDigits(text: string, count: number): number {
+  if (count <= 0) return text.startsWith('-') ? 1 : 0;
+  let seen = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] >= '0' && text[i] <= '9' && ++seen === count) return i + 1;
+  }
+  return text.length;
+}
+
 function AmountInput({ value, onCommit }: { value: number; onCommit: (n: number) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const ref = useRef<HTMLInputElement>(null);
+  /** 되돌려 놓을 커서 위치 — 재포맷으로 값이 통째로 대입되면 브라우저가 끝으로 보낸다 */
+  const caret = useRef<number | null>(null);
 
   const display = draft ?? formatPnlAmount(value);
 
+  // 금액 가운데를 고칠 때 커서가 맨 뒤로 튀어 숫자가 전부 뒤에 붙던 것을 막는다
+  useLayoutEffect(() => {
+    const pos = caret.current;
+    if (pos === null || !ref.current) return;
+    caret.current = null;
+    ref.current.setSelectionRange(pos, pos);
+  });
+
   return (
     <input
+      ref={ref}
       type="text"
       inputMode="numeric"
       value={display}
       onChange={e => {
         const raw = e.target.value;
+        // 커서 앞에 숫자가 몇 개였는지로 위치를 기억한다 (콤마는 세지 않는다)
+        const sel = e.target.selectionStart ?? raw.length;
+        const digitsBefore = raw.slice(0, sel).replace(/\D/g, '').length;
         const isNeg = raw.trim().startsWith('-');
         const digits = raw.replace(/\D/g, '');
         const cleaned = digits === '' ? (isNeg ? '-' : '') : (isNeg ? `-${digits}` : digits);
         if (cleaned === '' || cleaned === '-') {
+          caret.current = cleaned.length;
           setDraft(cleaned);
           onCommit(0);
           return;
         }
         const n = Number(cleaned);
-        setDraft(n.toLocaleString('ko-KR'));
+        const next = n.toLocaleString('ko-KR');
+        caret.current = caretAfterDigits(next, digitsBefore);
+        setDraft(next);
         onCommit(n);
       }}
       onBlur={() => setDraft(null)}

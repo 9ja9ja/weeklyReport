@@ -70,17 +70,24 @@ export default function PnlReportPage() {
   const save = async () => {
     setSaving(true);
     setMsg('');
+    const sent = categoriesRef.current;   // 서버로 보낸 스냅샷
     try {
       const res = await fetch('/api/pnl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, weekNum, categories: categoriesRef.current })
+        body: JSON.stringify({ year, weekNum, categories: sent })
       });
       const data = await res.json();
       if (!res.ok) { showMsg(data.error || '저장에 실패했습니다.'); return; }
       setReport(data.report);
-      setCategories(data.report.categories);
-      showMsg('저장되었습니다.');
+      // 응답은 방금 보낸 값의 메아리다. 서울↔싱가포르라 수백 ms 가 걸리는데,
+      // 그 사이 사용자가 더 고쳤으면 그 입력을 옛 값으로 덮어써 지워버린다.
+      if (categoriesRef.current === sent) {
+        setCategories(data.report.categories);
+        showMsg('저장되었습니다.');
+      } else {
+        showMsg('저장되었습니다. (이후 수정분은 아직 저장 전입니다)', 3000);
+      }
     } catch { showMsg('저장에 실패했습니다.'); }
     finally { setSaving(false); }
   };

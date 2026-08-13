@@ -7,7 +7,7 @@
  * 팀원 전체다(요약본은 마스터만). 공동 편집 대상이 아닌 팀·주차는 조용히 legacy 로
  * 떨어져 기존 개인 작성 화면이 그대로 돈다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import YProvider from 'y-partyserver/provider';
 
@@ -324,6 +324,10 @@ export function useYTextBinding(ytext: Y.Text | null, origin?: unknown) {
   const [tracked, setTracked] = useState(ytext);
   const composing = useRef(false);
   const valueRef = useRef(value);
+  /** 입력칸 DOM — 원격 변경을 얹은 뒤 내 커서를 제자리로 돌리는 데 쓴다 */
+  const elRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  /** 다음 렌더에서 되돌릴 커서 위치 */
+  const caret = useRef<{ start: number; end: number } | null>(null);
 
   if (tracked !== ytext) {
     setTracked(ytext);
@@ -335,27 +339,46 @@ export function useYTextBinding(ytext: Y.Text | null, origin?: unknown) {
     setValue(v);
   }, []);
 
+  /**
+   * 원격 변경을 화면에 얹는다.
+   *
+   * 제어 컴포넌트라 문자열이 바뀌면 React 가 DOM value 를 통째로 다시 넣고,
+   * 브라우저는 그때 커서를 **문자열 끝**으로 보낸다. 문장 중간을 고치던 사람은
+   * 팀원이 같은 칸을 건드리는 순간 커서를 잃고 글자가 끝에 가서 붙는다.
+   * 그래서 바뀐 구간만큼만 커서를 밀어 두고, 그린 직후 되돌린다.
+   */
+  const commitRemote = useCallback((next: string) => {
+    const el = elRef.current;
+    if (el && el === document.activeElement && next !== valueRef.current) {
+      const { index, removed, added } = textDiff(valueRef.current, next);
+      const shift = added.length - removed;
+      const map = (p: number) =>
+        p <= index ? p : p >= index + removed ? p + shift : index + added.length;
+      caret.current = { start: map(el.selectionStart ?? 0), end: map(el.selectionEnd ?? 0) };
+    }
+    commit(next);
+  }, [commit]);
+
+  useLayoutEffect(() => {
+    const c = caret.current;
+    caret.current = null;
+    const el = elRef.current;
+    if (c && el && el === document.activeElement) el.setSelectionRange(c.start, c.end);
+  }, [value]);
+
   useEffect(() => {
     if (!ytext) { valueRef.current = ''; return; }
-    const sync = () => { if (!composing.current) commit(ytext.toString()); };
+    const sync = () => { if (!composing.current) commitRemote(ytext.toString()); };
     ytext.observe(sync);
     sync();
     return () => ytext.unobserve(sync);
-  }, [ytext, commit]);
+  }, [ytext, commitRemote]);
 
   const push = useCallback((next: string) => {
     const prev = valueRef.current;
     commit(next);
     if (!ytext || prev === next) return;
-
-    const { index, removed, added } = textDiff(prev, next);
-    const len = ytext.length;
-    const at = Math.min(index, len);
-    const del = Math.min(removed, len - at);
-    ytext.doc?.transact(() => {
-      if (del > 0) ytext.delete(at, del);
-      if (added) ytext.insert(at, added);
-    }, origin);
+    applyLocalEdit(ytext, prev, next, origin);
   }, [ytext, commit, origin]);
 
   /**
@@ -377,7 +400,41 @@ export function useYTextBinding(ytext: Y.Text | null, origin?: unknown) {
     onCompositionEnd: endComposing
   };
 
-  return { value, push, compositionProps, endComposing };
+  return { value, push, compositionProps, endComposing, elRef };
+}
+
+/**
+ * 내가 친 구간을 문서에 반영한다.
+ *
+ * 한글 조합 중에는 원격 변경을 화면에 얹지 않는다(얹으면 조합이 깨진다). 그래서 그동안
+ * **내 화면 좌표와 문서 좌표가 어긋난다** — 팀원이 내 앞에 글자를 넣었으면 내 화면의 3번째 칸이
+ * 문서에서는 7번째다. 그 좌표로 그대로 쓰면 내 음절이 남의 문장 한가운데 박히고
+ * 그 자리의 남의 글자가 지워진다("긴급 월간각계획"처럼 뒤엉킨다).
+ *
+ * 내 편집은 전부 즉시 문서로 나가므로 "내 화면 → 문서" 의 차이는 곧 **원격이 바꾼 구간**이다.
+ * 그만큼만 내 위치를 옮겨서 넣는다.
+ */
+export function applyLocalEdit(ytext: Y.Text, prev: string, next: string, origin?: unknown): void {
+  const { index, removed, added } = textDiff(prev, next);
+  const doc = ytext.toString();
+
+  let at = index;
+  if (doc !== prev) {
+    const remote = textDiff(prev, doc);
+    // 내 편집 자리가 원격 변경 뒤쪽이면 그 길이 차이만큼 민다 (앞쪽이면 그대로)
+    if (index > remote.index) {
+      at = Math.max(remote.index, index + (remote.added.length - remote.removed));
+    }
+  }
+
+  const len = ytext.length;
+  at = Math.min(Math.max(at, 0), len);
+  const del = Math.min(removed, len - at);
+  if (del === 0 && !added) return;
+  ytext.doc?.transact(() => {
+    if (del > 0) ytext.delete(at, del);
+    if (added) ytext.insert(at, added);
+  }, origin);
 }
 
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
