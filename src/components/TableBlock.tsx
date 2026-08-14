@@ -24,6 +24,8 @@ import {
   parseClipboardTable,
   clipboardForTablePaste,
   isEditingTableCopy,
+  HEADER_ROW,
+  type CellMerge,
   type PasteSpot,
   isNumericCell,
   isPlaceholderCell,
@@ -196,10 +198,11 @@ export interface TableOps {
   removeRow(r: number): void;
   addColumn(): void;
   removeColumn(c: number): void;
+  /** r = HEADER_ROW(-1) 는 제목줄. 제목줄↔본문 세로 병합은 표현할 수 없어 무시된다 */
   merge(r1: number, c1: number, r2: number, c2: number): void;
   unmerge(r: number, c: number): void;
   /** 표 붙여넣기 — 내용을 통째로 갈아엎는다 */
-  replaceAll(headers: string[], rows: string[][]): void;
+  replaceAll(headers: string[], rows: string[][], merges?: CellMerge[]): void;
 }
 
 interface EditorProps {
@@ -252,7 +255,8 @@ export function TableBlockEditor({
     removeColumn: c => onChange(removeColumn(block, c)),
     merge: (r1, c1, r2, c2) => onChange(mergeCells(block, r1, c1, r2, c2)),
     unmerge: (r, c) => onChange(unmergeCells(block, r, c)),
-    replaceAll: (headers, rows) => onChange({ ...block, headers, rows, merges: undefined })
+    replaceAll: (headers, rows, merges) =>
+      onChange({ ...block, headers, rows, merges: merges?.length ? merges : undefined })
   };
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
@@ -261,6 +265,12 @@ export function TableBlockEditor({
 
   const selSpansMany = !!sel && (sel.r1 !== sel.r2 || sel.c1 !== sel.c2);
   const selMerge = sel ? mergeAt(block, sel.r1, sel.c1) : null;
+  /**
+   * 제목줄과 본문에 걸친 선택.
+   * thead/tbody 가 갈려 있어 이 병합은 HTML 로 표현할 수 없다 — 버튼을 눌러도 아무 일이
+   * 안 일어나면 고장으로 보이므로 아예 막고 이유를 말풍선으로 알린다.
+   */
+  const selCrossesHeader = !!sel && (sel.r1 === HEADER_ROW) !== (sel.r2 === HEADER_ROW);
 
   const pickCell = (e: React.MouseEvent, r: number, c: number) => {
     if (e.shiftKey) {
@@ -282,7 +292,7 @@ export function TableBlockEditor({
         return true;
       }
     }
-    op.replaceAll(parsed.headers, parsed.rows);
+    op.replaceAll(parsed.headers, parsed.rows, parsed.merges);
     return true;
   };
 
@@ -394,41 +404,60 @@ export function TableBlockEditor({
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr>
-              {block.headers.map((h, c) => (
-                <th key={colKeys?.[c] ?? c} style={{ ...cellBase, background: 'var(--btn-bg)', position: 'relative' }}>
-                  <CellInput
-                    value={h}
-                    onChange={v => op.setHeader(c, v)}
-                    peers={peersAt(PART.header(c))}
-                    {...focusAt(PART.header(c))}
-                    placeholder={`열${c + 1}`}
-                    style={{ fontWeight: 700 }}
-                  />
-                  {block.headers.length > 1 && (
-                    <button
-                      onClick={() => op.removeColumn(c)}
-                      title="열 삭제"
-                      style={{
-                        position: 'absolute',
-                        top: '-7px',
-                        right: '-4px',
-                        width: '15px',
-                        height: '15px',
-                        lineHeight: '13px',
-                        borderRadius: '50%',
-                        border: '1px solid var(--border)',
-                        background: 'var(--background)',
-                        color: '#dc2626',
-                        fontSize: '0.6rem',
-                        cursor: 'pointer',
-                        padding: 0
+              {block.headers.map((h, c) => {
+                if (isCovered(block, HEADER_ROW, c)) return null;   // 옆 칸이 가로로 덮고 있다
+                const { colSpan } = spanAt(block, HEADER_ROW, c);
+                const picked = inRange(sel, HEADER_ROW, c);
+                return (
+                  <th
+                    key={colKeys?.[c] ?? c}
+                    colSpan={colSpan}
+                    onMouseDown={e => pickCell(e, HEADER_ROW, c)}
+                    style={{
+                      ...cellBase,
+                      background: 'var(--btn-bg)',
+                      position: 'relative',
+                      ...(picked ? { outline: '2px solid var(--primary)', outlineOffset: '-2px' } : {})
+                    }}
+                  >
+                    <CellInput
+                      value={h}
+                      onChange={v => op.setHeader(c, v)}
+                      peers={peersAt(PART.header(c))}
+                      onFocus={() => {
+                        setSel(prev => (inRange(prev, HEADER_ROW, c) ? prev : { r1: HEADER_ROW, c1: c, r2: HEADER_ROW, c2: c }));
+                        focusAt(PART.header(c))?.onFocus();
                       }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </th>
-              ))}
+                      onBlur={() => focusAt(PART.header(c))?.onBlur()}
+                      placeholder={`열${c + 1}`}
+                      style={{ fontWeight: 700 }}
+                    />
+                    {block.headers.length > 1 && (
+                      <button
+                        onClick={() => op.removeColumn(c)}
+                        title="열 삭제"
+                        style={{
+                          position: 'absolute',
+                          top: '-7px',
+                          right: '-4px',
+                          width: '15px',
+                          height: '15px',
+                          lineHeight: '13px',
+                          borderRadius: '50%',
+                          border: '1px solid var(--border)',
+                          background: 'var(--background)',
+                          color: '#dc2626',
+                          fontSize: '0.6rem',
+                          cursor: 'pointer',
+                          padding: 0
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </th>
+                );
+              })}
               <th style={{ border: 'none', width: '24px' }} />
             </tr>
           </thead>
@@ -506,10 +535,12 @@ export function TableBlockEditor({
         <button onClick={() => op.addColumn()} className="btn" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>+ 열</button>
         <button
           onClick={() => sel && op.merge(sel.r1, sel.c1, sel.r2, sel.c2)}
-          disabled={!selSpansMany}
+          disabled={!selSpansMany || selCrossesHeader}
           className="btn"
-          title="셀을 누르고 Shift+클릭으로 범위를 잡은 뒤 누르세요"
-          style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', opacity: selSpansMany ? 1 : 0.45 }}
+          title={selCrossesHeader
+            ? '제목줄과 본문은 함께 병합할 수 없습니다. 제목줄끼리만 가로로 병합해 주세요.'
+            : '셀을 누르고 Shift+클릭으로 범위를 잡은 뒤 누르세요 (제목줄도 됩니다)'}
+          style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', opacity: selSpansMany && !selCrossesHeader ? 1 : 0.45 }}
         >
           셀 병합
         </button>
@@ -529,8 +560,8 @@ export function TableBlockEditor({
           표 붙여넣기
         </button>
         <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-          셀 안에서 Enter 로 줄바꿈 · 셀 클릭 후 Shift+클릭으로 범위를 잡아 병합 ·
-          구글 독스·엑셀 표를 복사해 셀에 Ctrl+V 하면 제목줄까지 그대로 들어옵니다.
+          셀 안에서 Enter 로 줄바꿈 · 셀 클릭 후 Shift+클릭으로 범위를 잡아 병합(제목줄끼리도 가능) ·
+          구글 독스·엑셀 표를 복사해 셀에 Ctrl+V 하면 제목줄의 병합까지 그대로 들어옵니다.
         </span>
       </div>
 
@@ -595,23 +626,28 @@ export function TableBlockView({ block }: { block: TableBlock }) {
         <table style={{ borderCollapse: 'collapse', fontSize: '0.8rem' }}>
           <thead>
             <tr>
-              {block.headers.map((h, c) => (
-                <th
-                  key={c}
-                  style={{
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface-dim)',
-                    padding: '0.2rem 0.5rem',
-                    fontWeight: 700,
-                    // 셀 안 줄바꿈을 살리되 자동 줄바꿈은 막는다
-                    whiteSpace: 'pre',
-                    textAlign: 'center',
-                    verticalAlign: 'middle'
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+              {block.headers.map((h, c) => {
+                if (isCovered(block, HEADER_ROW, c)) return null;
+                const { colSpan } = spanAt(block, HEADER_ROW, c);
+                return (
+                  <th
+                    key={c}
+                    colSpan={colSpan}
+                    style={{
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface-dim)',
+                      padding: '0.2rem 0.5rem',
+                      fontWeight: 700,
+                      // 셀 안 줄바꿈을 살리되 자동 줄바꿈은 막는다
+                      whiteSpace: 'pre',
+                      textAlign: 'center',
+                      verticalAlign: 'middle'
+                    }}
+                  >
+                    {h}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

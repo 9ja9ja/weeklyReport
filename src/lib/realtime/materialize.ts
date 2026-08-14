@@ -8,8 +8,8 @@
  * 룸이 오염됐을 때 그대로 DB 에 실린다. Worker 는 ydoc 바이트만 보낸다.
  */
 import * as Y from 'yjs';
-import type { CellMerge, ContentBlock, SubBlock, TableBlock } from '../reportBlocks';
-import { BLOCK, MERGE, META, ROOT, SIDES, cellKey, readText, sortedEntries } from './schema';
+import { HEADER_ROW, type CellMerge, type ContentBlock, type SubBlock, type TableBlock } from '../reportBlocks';
+import { BLOCK, HDR_ROW_ID, MERGE, META, ROOT, SIDES, cellKey, readText, sortedEntries } from './schema';
 import type { EditorState } from './buildDoc';
 
 export interface DocMeta {
@@ -67,7 +67,8 @@ function materializeMerges(
   const raw = b.get(BLOCK.merges);
   if (!(raw instanceof Y.Map) || raw.size === 0) return undefined;
 
-  const rowIdx = new Map(rowIds.map((id, i) => [id, i]));
+  const rowIdx = new Map<string, number>(rowIds.map((id, i) => [id, i]));
+  rowIdx.set(HDR_ROW_ID, HEADER_ROW);   // 제목줄은 rows 밖이라 sentinel 로 들어와 있다
   const colIdx = new Map(colIds.map((id, i) => [id, i]));
 
   const candidates: { id: string; m: CellMerge }[] = [];

@@ -10,7 +10,7 @@
  * - 담당   = 그 분류1에서 실제로 작성한 사람들 (파트 단위 세로 병합)
  */
 import {
-  type ContentBlock, isTableBlock, isCovered, spanAt,
+  type ContentBlock, isTableBlock, isCovered, spanAt, HEADER_ROW,
   isNumericCell, isPlaceholderCell, numericCellColor, formatNumericCell
 } from './reportBlocks';
 import { getNextWeek } from './weekUtils';
@@ -83,7 +83,12 @@ const P = 'margin:0;font-size:9pt;line-height:1.35;';
 function renderTable(t: Extract<ContentBlock, { type: 'table' }>): string {
   const c = `${BORDER}padding:1pt 4pt;font-size:8.5pt;`;
   const head = t.headers
-    .map(h => `<td style="${c}text-align:center;background:#f2f2f2;font-weight:bold;">${esc(h).replace(/\n/g, '<br>')}</td>`)
+    .map((h, ci) => {
+      if (isCovered(t, HEADER_ROW, ci)) return '';   // 제목줄 가로 병합으로 덮인 칸
+      const { colSpan } = spanAt(t, HEADER_ROW, ci);
+      const attrs = colSpan > 1 ? ` colspan="${colSpan}"` : '';
+      return `<td style="${c}text-align:center;background:#f2f2f2;font-weight:bold;"${attrs}>${esc(h).replace(/\n/g, '<br>')}</td>`;
+    })
     .join('');
   const body = t.rows
     .map((row, r) => {

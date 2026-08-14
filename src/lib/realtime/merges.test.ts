@@ -10,7 +10,7 @@ import * as Y from 'yjs';
 import { buildDocFromState, type EditorState } from './buildDoc';
 import { materialize } from './materialize';
 import { mergeCells, unmergeCells, insertRow, removeRow, insertColumn, removeColumn, rowIds, colIds } from './yOps';
-import { isTableBlock, type TableBlock } from '../reportBlocks';
+import { isTableBlock, HEADER_ROW, type TableBlock } from '../reportBlocks';
 import { BLOCK } from './schema';
 
 const CAT = '1';
@@ -193,5 +193,45 @@ describe('고아 병합 정리', () => {
     mergeCells(doc, CAT, 'current', 't1', 1, 0, 2, 0);
     const after = tableMap(doc).get(BLOCK.merges) as Y.Map<unknown>;
     expect(after.size).toBe(1);                       // 새 것만 남는다
+  });
+});
+
+describe('제목줄 병합 — rows 밖의 좌표', () => {
+  it('제목줄 가로 병합이 문서를 왕복해도 살아남는다', () => {
+    const doc = docWithTable(2, 4, [{ r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 3 }]);
+    expect(readTable(doc).merges).toEqual([{ r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 3 }]);
+  });
+
+  it('편집 연산으로 제목줄을 병합하고 풀 수 있다', () => {
+    const doc = docWithTable(2, 4);
+    mergeCells(doc, CAT, 'current', 't1', HEADER_ROW, 0, HEADER_ROW, 1);
+    expect(readTable(doc).merges).toEqual([{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+
+    unmergeCells(doc, CAT, 'current', 't1', HEADER_ROW, 1);
+    expect(readTable(doc).merges).toBeUndefined();
+  });
+
+  it('제목줄과 본문에 걸친 병합은 문서에 들어가지 않는다', () => {
+    const doc = docWithTable(2, 3);
+    mergeCells(doc, CAT, 'current', 't1', HEADER_ROW, 0, 0, 0);
+    expect(readTable(doc).merges).toBeUndefined();
+  });
+
+  it('남이 행을 넣고 빼도 제목줄 병합은 흔들리지 않는다', () => {
+    const doc = docWithTable(2, 3, [{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+    insertRow(doc, CAT, 'current', 't1', 'top');
+    expect(readTable(doc).merges).toEqual([{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+
+    removeRow(doc, CAT, 'current', 't1', rowIds(tableMap(doc))[0]);
+    expect(readTable(doc).merges).toEqual([{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+  });
+
+  it('제목줄 병합도 본문과 같은 규칙 — 안쪽 열이 빠지면 줄고, 끝점이 빠지면 버린다', () => {
+    const doc = docWithTable(2, 3, [{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 3 }]);
+    removeColumn(doc, CAT, 'current', 't1', colIds(tableMap(doc))[1]);   // 안쪽
+    expect(readTable(doc).merges).toEqual([{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+
+    removeColumn(doc, CAT, 'current', 't1', colIds(tableMap(doc))[0]);   // 끝점
+    expect(readTable(doc).merges).toBeUndefined();
   });
 });

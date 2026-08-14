@@ -10,8 +10,8 @@
  */
 import * as Y from 'yjs';
 import { generateKeyBetween } from 'fractional-indexing';
-import { generateId } from '../reportBlocks';
-import { BLOCK, MERGE, cellKey, compareOrdered, sortedEntries, type Side } from './schema';
+import { generateId, HEADER_ROW, type CellMerge } from '../reportBlocks';
+import { BLOCK, HDR_ROW_ID, MERGE, cellKey, compareOrdered, sortedEntries, type Side } from './schema';
 import { readSideMap, sideMap } from './buildDoc';
 
 export interface Author {
@@ -401,7 +401,11 @@ export function mergeCells(
     if (expect && (rids.length !== expect.rows || cids.length !== expect.cols)) return;
     const top = Math.min(r1, r2), bottom = Math.max(r1, r2);
     const left = Math.min(c1, c2), right = Math.max(c1, c2);
-    if (top < 0 || left < 0 || bottom >= rids.length || right >= cids.length) return;
+    // r = -1 은 제목줄. rows Y.Map 밖이라 sentinel id 로 가리킨다.
+    // thead/tbody 가 갈려 있어 제목줄↔본문 세로 병합은 표현할 수 없다.
+    if (top < -1 || left < 0 || right >= cids.length) return;
+    if (top === HEADER_ROW && bottom >= 0) return;
+    if (bottom >= 0 && bottom >= rids.length) return;
     if ((bottom - top + 1) * (right - left + 1) <= 1) return;
 
     // 컨테이너는 시드·표 생성 시점에 만들어져 있다. 여기서 만드는 건 그 이전에 만들어진
@@ -414,7 +418,8 @@ export function mergeCells(
     const mm = merges as Y.Map<unknown>;
 
     // 새 범위와 겹치는 기존 병합 제거
-    const rowIdx = new Map(rids.map((id, i) => [id, i]));
+    const rowIdx = new Map<string, number>(rids.map((id, i) => [id, i]));
+    rowIdx.set(HDR_ROW_ID, HEADER_ROW);
     const colIdx = new Map(cids.map((id, i) => [id, i]));
     const dead: string[] = [];
     mm.forEach((entry, mid) => {
@@ -434,10 +439,11 @@ export function mergeCells(
     });
     dead.forEach(k => mm.delete(k));
 
+    const rowIdAt = (i: number) => (i === HEADER_ROW ? HDR_ROW_ID : rids[i]);
     const em = new Y.Map();
-    em.set(MERGE.anchorRow, rids[top]);
+    em.set(MERGE.anchorRow, rowIdAt(top));
     em.set(MERGE.anchorCol, cids[left]);
-    em.set(MERGE.endRow, rids[bottom]);
+    em.set(MERGE.endRow, rowIdAt(bottom));
     em.set(MERGE.endCol, cids[right]);
     mm.set(generateId(), em);
   }, origin);
@@ -458,7 +464,8 @@ export function unmergeCells(
     const merges = b.get(BLOCK.merges);
     if (!(rows instanceof Y.Map) || !(cols instanceof Y.Map) || !(merges instanceof Y.Map)) return;
 
-    const rowIdx = new Map(sortedEntries(rows).map(([id], i) => [id, i]));
+    const rowIdx = new Map<string, number>(sortedEntries(rows).map(([id], i) => [id, i]));
+    rowIdx.set(HDR_ROW_ID, HEADER_ROW);   // 제목줄 병합도 풀 수 있어야 한다
     const colIdx = new Map(sortedEntries(cols).map(([id], i) => [id, i]));
     const dead: string[] = [];
     merges.forEach((entry, mid) => {
@@ -532,7 +539,7 @@ export function setBulletTextValue(
  */
 export function replaceTableContent(
   doc: Y.Doc, catId: string | number, side: Side, blockId: string,
-  headers: string[], rows: string[][], origin?: unknown
+  headers: string[], rows: string[][], origin?: unknown, merges?: CellMerge[]
 ): void {
   const sm = readSideMap(doc, catId, side);
   if (!sm) return;
@@ -574,8 +581,26 @@ export function replaceTableContent(
     }));
     b.set(BLOCK.cells, cellMap);
 
-    // 행·열이 전부 바뀌었으므로 기존 병합은 가리킬 곳이 없다
-    b.set(BLOCK.merges, new Y.Map());
+    // 행·열이 전부 바뀌었으므로 기존 병합은 가리킬 곳이 없다.
+    // 붙여넣은 표가 가진 병합(엑셀 2단 제목줄 등)만 새 id 로 다시 심는다.
+    // 맵 자체가 새것이라 id 충돌이 없다. buildDoc 과 같이 순번 id 를 써서
+    // 같은 표를 붙여넣으면 저장본도 같게 나오게 한다(정렬이 id 순이다).
+    const mergeMap = new Y.Map();
+    (merges ?? []).forEach((m, i) => {
+      const top = m.r, bottom = m.r + m.rowSpan - 1;
+      const left = m.c, right = m.c + m.colSpan - 1;
+      if (m.rowSpan * m.colSpan <= 1) return;
+      if (left < 0 || right >= newColIds.length) return;
+      if (top === HEADER_ROW ? bottom !== HEADER_ROW : top < 0 || bottom >= newRowIds.length) return;
+      const rowIdAt = (i: number) => (i === HEADER_ROW ? HDR_ROW_ID : newRowIds[i]);
+      const em = new Y.Map();
+      em.set(MERGE.anchorRow, rowIdAt(top));
+      em.set(MERGE.anchorCol, newColIds[left]);
+      em.set(MERGE.endRow, rowIdAt(bottom));
+      em.set(MERGE.endCol, newColIds[right]);
+      mergeMap.set(`m${String(i).padStart(3, '0')}`, em);
+    });
+    b.set(BLOCK.merges, mergeMap);
   }, origin);
 }
 

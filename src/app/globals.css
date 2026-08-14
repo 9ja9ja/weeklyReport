@@ -90,6 +90,9 @@ a {
   border: none;
   border-top: 2px solid var(--border);
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  /* 그리드 칸의 기본값은 min-width:auto 라 안쪽 표가 넓어지면 칸 자체가 늘어난다.
+     그러면 표의 가로 스크롤이 생기지 않고 3단 레이아웃이 통째로 밀려 깨진다. */
+  min-width: 0;
 }
 
 .action-btn {

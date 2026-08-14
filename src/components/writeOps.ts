@@ -41,7 +41,11 @@ export interface WriteOps {
   removeBullet(catId: number, side: Side, blockId: string, bulletId: string): void;
   setBulletText(catId: number, side: Side, blockId: string, bulletId: string, v: string): void;
   moveBullet(catId: number, side: Side, blockId: string, bulletId: string, targetId: string): void;
-  copyCurrentToNext(catId: number, blocks: ContentBlock[]): void;
+  /**
+   * 한쪽 열의 내용을 blocks 로 통째로 갈아끼운다 (금주→차주 복사, 전주 금주 가져오기).
+   * blocks 는 다른 주차·다른 열의 것이라 id 를 새로 뽑아 넣는다.
+   */
+  copyBlocksInto(catId: number, side: Side, blocks: ContentBlock[]): void;
   tableOps(catId: number, side: Side, blockId: string): TableOps;
   /** 공동 편집에서 텍스트 입력을 직접 묶을 Y.Text (개인 작성이면 null) */
   subText(catId: number, side: Side, blockId: string): Y.Text | null;
@@ -126,9 +130,17 @@ export function localWriteOps(setState: SetState, readOnly: boolean): WriteOps {
         n.splice(to, 0, it);
         return { ...s, bullets: n };
       }),
-    copyCurrentToNext: (catId, blocks) => update(catId, 'next', () =>
+    copyBlocksInto: (catId, side, blocks) => update(catId, side, () =>
       blocks.map(b => (isTableBlock(b)
-        ? { ...b, id: generateId(), headers: [...b.headers], rows: b.rows.map(r => [...r]) }
+        ? {
+            id: generateId(), type: 'table' as const, caption: b.caption,
+            headers: [...b.headers], rows: b.rows.map(r => [...r]),
+            // 병합 배열까지 복제한다 — 원본과 같은 배열을 물고 있으면 한쪽 편집이 다른 쪽을 건드린다
+            ...(b.merges ? { merges: b.merges.map(m => ({ ...m })) } : {})
+            // authorText/authorId 는 옮기지 않는다. 전주 참고본이 팀 취합본일 때
+            // 남의 이름표가 그대로 딸려와 이번 주 취합본에 남의 이름으로 찍힌다.
+            // (서술 항목과 공동 편집 경로도 이미 작성자를 새로 잡는다)
+          }
         : { id: generateId(), type: 'sub' as const, subText: b.subText, bullets: b.bullets.map(x => ({ id: generateId(), text: x.text })) }))
     ),
     tableOps: (catId, side, blockId): TableOps => ({
@@ -141,7 +153,8 @@ export function localWriteOps(setState: SetState, readOnly: boolean): WriteOps {
       removeColumn: c => updateTable(catId, side, blockId, t => removeColumnLocal(t, c)),
       merge: (r1, c1, r2, c2) => updateTable(catId, side, blockId, t => mergeCellsLocal(t, r1, c1, r2, c2)),
       unmerge: (r, c) => updateTable(catId, side, blockId, t => unmergeCellsLocal(t, r, c)),
-      replaceAll: (headers, rows) => updateTable(catId, side, blockId, t => ({ ...t, headers, rows, merges: undefined }))
+      replaceAll: (headers, rows, merges) =>
+        updateTable(catId, side, blockId, t => ({ ...t, headers, rows, merges: merges?.length ? merges : undefined }))
     }),
     subText: () => null,
     bulletText: () => null,
@@ -211,33 +224,33 @@ export function sharedWriteOps(
       const { prev, next } = neighborsFor(list, bulletId, targetId);
       ops.moveBullet(doc, catId, side, blockId, bulletId, prev, next, origin);
     }),
-    copyCurrentToNext: guard((catId: number, blocks: ContentBlock[]) => {
+    copyBlocksInto: guard((catId: number, side: Side, blocks: ContentBlock[]) => {
       // 두 사람이 동시에 누르면 삭제는 병합되지만 추가는 양쪽 다 살아남아 내용이 두 벌이 된다.
       // 문서에서 직접 현재 목록을 읽어 지우고, 같은 트랜잭션 안에서 다시 채운다.
       doc.transact(() => {
-        const existing = ops.blockIds(doc, catId, 'next');
-        for (const id of existing) ops.removeBlock(doc, catId, 'next', id, origin);
+        const existing = ops.blockIds(doc, catId, side);
+        for (const id of existing) ops.removeBlock(doc, catId, side, id, origin);
         for (const b of blocks) {
           if (isTableBlock(b)) {
-            const id = ops.addTableBlock(doc, catId, 'next', author, b.headers.length, b.rows.length, origin);
-            ops.setCaptionText(doc, catId, 'next', id, b.caption, origin);
-            b.headers.forEach((h, c) => ops.setHeaderAt(doc, catId, 'next', id, c, h, origin));
+            const id = ops.addTableBlock(doc, catId, side, author, b.headers.length, b.rows.length, origin);
+            ops.setCaptionText(doc, catId, side, id, b.caption, origin);
+            b.headers.forEach((h, c) => ops.setHeaderAt(doc, catId, side, id, c, h, origin));
             b.rows.forEach((row, r) => row.forEach((v, c) => {
-              if (v) ops.setCellAt(doc, catId, 'next', id, r, c, v, origin);
+              if (v) ops.setCellAt(doc, catId, side, id, r, c, v, origin);
             }));
             // 병합도 함께 복사한다 — 빠뜨리면 개인 작성 모드와 결과가 달라진다
             (b.merges ?? []).forEach(m =>
               ops.mergeCells(
-                doc, catId, 'next', id,
+                doc, catId, side, id,
                 m.r, m.c, m.r + m.rowSpan - 1, m.c + m.colSpan - 1, origin
               )
             );
           } else {
-            const id = ops.addSubBlock(doc, catId, 'next', author, origin);
-            ops.setSubTextValue(doc, catId, 'next', id, b.subText, origin);
+            const id = ops.addSubBlock(doc, catId, side, author, origin);
+            ops.setSubTextValue(doc, catId, side, id, b.subText, origin);
             b.bullets.forEach(x => {
-              const bid = ops.addBullet(doc, catId, 'next', id, origin);
-              if (bid) ops.setBulletTextValue(doc, catId, 'next', id, bid, x.text, origin);
+              const bid = ops.addBullet(doc, catId, side, id, origin);
+              if (bid) ops.setBulletTextValue(doc, catId, side, id, bid, x.text, origin);
             });
           }
         }
@@ -266,9 +279,9 @@ export function sharedWriteOps(
       },
       merge: (r1, c1, r2, c2) => { if (!readOnly) ops.mergeCells(doc, catId, side, blockId, r1, c1, r2, c2, origin, shape()); },
       unmerge: (r, c) => { if (!readOnly) ops.unmergeCells(doc, catId, side, blockId, r, c, origin); },
-      replaceAll: (headers, rows) => {
+      replaceAll: (headers, rows, merges) => {
         if (readOnly) return;
-        ops.replaceTableContent(doc, catId, side, blockId, headers, rows, origin);
+        ops.replaceTableContent(doc, catId, side, blockId, headers, rows, origin, merges);
       }
       };
     },

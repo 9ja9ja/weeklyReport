@@ -9,6 +9,7 @@ import {
   createTableBlock, addRow, removeRow, addColumn, removeColumn,
   mergeCells, unmergeCells, mergeAt, isCovered, spanAt, setCell,
   clipboardForTablePaste, hasHtmlTable, isEditingTableCopy,
+  tableToHtml, tableToText, HEADER_ROW,
   type TableBlock
 } from './reportBlocks';
 
@@ -226,5 +227,79 @@ describe('표 붙여넣기 판정', () => {
     expect(hasHtmlTable('<p>&lt;table&gt; 태그 설명</p>')).toBe(false);
     expect(hasHtmlTable(null)).toBe(false);
     expect(hasHtmlTable('')).toBe(false);
+  });
+});
+
+describe('제목줄 병합 (r = -1)', () => {
+  it('제목줄끼리 가로로 병합된다', () => {
+    const t = mergeCells(grid(2, 4), HEADER_ROW, 1, HEADER_ROW, 3);
+    expect(t.merges).toEqual([{ r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 3 }]);
+    expect(spanAt(t, HEADER_ROW, 1)).toEqual({ rowSpan: 1, colSpan: 3 });
+    expect(isCovered(t, HEADER_ROW, 2)).toBe(true);
+    expect(isCovered(t, HEADER_ROW, 1)).toBe(false);
+    // 본문 첫 행은 건드리지 않는다
+    expect(isCovered(t, 0, 2)).toBe(false);
+  });
+
+  it('제목줄과 본문에 걸친 병합은 거부한다 (thead/tbody 를 넘을 수 없다)', () => {
+    const t = grid(2, 3);
+    expect(mergeCells(t, HEADER_ROW, 0, 1, 0)).toBe(t);
+    expect(mergeCells(t, 0, 0, HEADER_ROW, 0)).toBe(t);
+  });
+
+  it('제목줄 한 칸만 고른 것은 병합이 아니다', () => {
+    const t = grid(2, 3);
+    expect(mergeCells(t, HEADER_ROW, 1, HEADER_ROW, 1)).toBe(t);
+  });
+
+  it('행을 넣고 빼도 제목줄 병합은 그대로다', () => {
+    let t = mergeCells(grid(2, 4), HEADER_ROW, 0, HEADER_ROW, 1);
+    t = addRow(t, 0);
+    expect(t.merges).toEqual([{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+    t = removeRow(t, 0);
+    expect(t.merges).toEqual([{ r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 }]);
+  });
+
+  it('열을 넣고 빼면 제목줄 병합도 따라 움직인다', () => {
+    let t = mergeCells(grid(2, 4), HEADER_ROW, 1, HEADER_ROW, 3);
+    t = addColumn(t, 0);
+    expect(t.merges).toEqual([{ r: HEADER_ROW, c: 2, rowSpan: 1, colSpan: 3 }]);
+    t = removeColumn(t, 0);
+    expect(t.merges).toEqual([{ r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 3 }]);
+    // 병합 안쪽 열이 빠지면 범위가 줄고, 한 칸만 남으면 병합이 사라진다
+    t = removeColumn(t, 1);
+    expect(t.merges).toEqual([{ r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 2 }]);
+    t = removeColumn(t, 1);
+    expect(t.merges).toBeUndefined();
+  });
+
+  it('제목줄 병합을 풀 수 있다', () => {
+    const t = mergeCells(grid(2, 3), HEADER_ROW, 0, HEADER_ROW, 2);
+    expect(unmergeCells(t, HEADER_ROW, 1).merges).toBeUndefined();
+  });
+
+  it('본문 병합과 제목줄 병합은 서로를 삼키지 않는다', () => {
+    let t = mergeCells(grid(3, 3), HEADER_ROW, 0, HEADER_ROW, 1);
+    t = mergeCells(t, 0, 0, 1, 1);
+    expect(t.merges).toEqual([
+      { r: HEADER_ROW, c: 0, rowSpan: 1, colSpan: 2 },
+      { r: 0, c: 0, rowSpan: 2, colSpan: 2 }
+    ]);
+  });
+});
+
+describe('제목줄 병합 내보내기', () => {
+  it('HTML 로 내보낼 때 제목줄에 colspan 이 붙고 덮인 칸은 빠진다', () => {
+    const t = mergeCells(grid(1, 3), HEADER_ROW, 0, HEADER_ROW, 1);
+    const html = tableToHtml(t);
+    const head = html.slice(html.indexOf('<tr>'), html.indexOf('</tr>'));
+    expect(head).toContain('colspan="2"');
+    expect((head.match(/<td/g) ?? []).length).toBe(2);   // 3열 중 하나는 덮여 사라진다
+  });
+
+  it('탭 텍스트로 내보낼 때 덮인 제목 칸은 빈칸이 된다', () => {
+    const t = mergeCells(grid(1, 3), HEADER_ROW, 0, HEADER_ROW, 1);
+    const headerLine = tableToText(t, '').split('\n')[0];
+    expect(headerLine.split('\t')).toEqual(['', '', '']);   // createTableBlock 의 제목은 빈 문자열
   });
 });

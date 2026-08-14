@@ -90,6 +90,13 @@ export const MERGE = {
   endCol: 'ec'
 } as const;
 
+/**
+ * 헤더 행의 가상 row ID.
+ * 헤더는 rows Y.Map 에 없으므로 병합 끝점에 이 sentinel 을 쓴다.
+ * generateId() 는 base36 만 만들어 '__' 로 시작하는 값과 절대 겹치지 않는다.
+ */
+export const HDR_ROW_ID = '__hdr__';
+
 export type OrderedEntry<T> = { id: string; order: string; value: T };
 
 /**

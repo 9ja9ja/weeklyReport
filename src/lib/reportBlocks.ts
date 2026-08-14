@@ -22,6 +22,15 @@ export type SubBlock = {
  */
 export type CellMerge = { r: number; c: number; rowSpan: number; colSpan: number };
 
+/**
+ * 제목줄(headers)의 행 번호.
+ *
+ * 제목줄은 rows 배열 밖(thead)이라 0 이상의 좌표로는 가리킬 수 없다. 엑셀의 2단 제목줄
+ * (그룹명 아래 세부 항목)을 살리려면 제목줄도 가로 병합이 돼야 해서 음수 좌표를 준다.
+ * thead/tbody 가 갈려 있어 **제목줄↔본문 세로 병합은 HTML 로 표현할 수 없다** — 막는다.
+ */
+export const HEADER_ROW = -1;
+
 /** 문서의 통계표 (문의 대응 추이표, 운영 실적표, 진행 경과표 등) */
 export type TableBlock = {
   id: string;
@@ -188,7 +197,10 @@ export function spanAt(t: TableBlock, r: number, c: number): { rowSpan: number; 
 export function mergeCells(t: TableBlock, r1: number, c1: number, r2: number, c2: number): TableBlock {
   let top = Math.min(r1, r2), bottom = Math.max(r1, r2);
   let left = Math.min(c1, c2), right = Math.max(c1, c2);
-  if (top < 0 || left < 0 || bottom >= t.rows.length || right >= t.headers.length) return t;
+  // r = -1 은 헤더 행. thead/tbody 분리 때문에 헤더↔본문 교차 병합은 허용하지 않는다.
+  if (top < -1 || left < 0 || right >= t.headers.length) return t;
+  if (top === -1 && bottom >= 0) return t;        // 교차 금지
+  if (bottom >= 0 && bottom >= t.rows.length) return t;
 
   // 겹치는 기존 병합을 모두 삼킬 때까지 범위를 넓힌다
   const others = t.merges ?? [];
@@ -263,6 +275,9 @@ export function clipboardForTablePaste(
   return hasHtmlTable(html) ? { html: html ?? null, text: null } : null;
 }
 
+/** 붙여넣기 원본을 좌표계로 펼친 것 — 병합 좌표는 제목줄을 0 으로 세는 절대 행 번호다 */
+type ClipboardGrid = { grid: string[][]; merges: CellMerge[] };
+
 /**
  * 클립보드의 표를 파싱한다.
  * 구글 독스/시트·엑셀·워드에서 복사하면 text/html 에 <table> 이,
@@ -272,19 +287,45 @@ export function clipboardForTablePaste(
 export function parseClipboardTable(
   html: string | null | undefined,
   text: string | null | undefined
-): { headers: string[]; rows: string[][] } | null {
-  const grid = parseHtmlTable(html) ?? parseTsv(text);
-  if (!grid || grid.length === 0) return null;
+): { headers: string[]; rows: string[][]; merges?: CellMerge[] } | null {
+  const parsed = parseHtmlTable(html) ?? parseTsvGrid(text);
+  if (!parsed || parsed.grid.length === 0) return null;
+  const { grid } = parsed;
 
   // 셀이 하나뿐이면 표가 아니다 (일반 텍스트 붙여넣기)
   if (grid.length === 1 && grid[0].length <= 1) return null;
 
   const width = Math.max(...grid.map(r => r.length));
-  const padded = grid.map(r => [...r, ...Array(width - r.length).fill('')]);
-  return { headers: padded[0], rows: padded.slice(1) };
+  const padded = grid.map(r => Array.from({ length: width }, (_, c) => r[c] ?? ''));
+  const rows = padded.slice(1);
+
+  // 첫 줄은 제목줄로 올라간다. 그만큼 본문 병합 좌표를 한 칸 당겨야 한다.
+  const merges: CellMerge[] = [];
+  for (const m of parsed.merges) {
+    if (m.c < 0 || m.c + m.colSpan > width) continue;
+    if (m.r > 0) {
+      merges.push({ ...m, r: m.r - 1 });
+      continue;
+    }
+    // 제목줄에 걸친 병합 — 가로 병합만 thead 에 남길 수 있다.
+    // 엑셀 2단 제목줄의 "기준시점"(세로 2칸)처럼 아래로 이어지던 부분은 본문의 빈 칸이 된다.
+    if (m.colSpan > 1) merges.push({ r: HEADER_ROW, c: m.c, rowSpan: 1, colSpan: m.colSpan });
+    const below = m.rowSpan - 1;
+    if (below * m.colSpan > 1) merges.push({ r: 0, c: m.c, rowSpan: below, colSpan: m.colSpan });
+  }
+  const kept = merges.filter(m => m.r === HEADER_ROW || m.r + m.rowSpan <= rows.length);
+
+  return { headers: padded[0], rows, ...(kept.length ? { merges: kept } : {}) };
 }
 
-function parseHtmlTable(html: string | null | undefined): string[][] | null {
+/**
+ * HTML 표를 가상 그리드로 펼친다.
+ *
+ * colspan 만 보고 rowspan 을 무시하면 세로 병합 아래 행들이 한 칸씩 왼쪽으로 밀려
+ * 엑셀의 2단 제목줄(그룹명 + 세부 항목)이 통째로 어긋난다. 위 행이 rowspan 으로 차지한
+ * 자리를 표시해 두고 건너뛰어야 원본과 같은 좌표가 나온다.
+ */
+function parseHtmlTable(html: string | null | undefined): ClipboardGrid | null {
   if (!html || typeof window === 'undefined' || !html.includes('<t')) return null;
   try {
     const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -292,20 +333,76 @@ function parseHtmlTable(html: string | null | undefined): string[][] | null {
     if (!table) return null;
 
     const grid: string[][] = [];
-    table.querySelectorAll('tr').forEach(tr => {
-      const cells: string[] = [];
-      tr.querySelectorAll('th, td').forEach(td => {
+    const merges: CellMerge[] = [];
+    /** 위 행의 rowspan 이 이미 먹은 자리 — "r:c" */
+    const taken = new Set<string>();
+    const at = (r: number): string[] => (grid[r] ??= []);
+    /** 1 미만·비정상 span 은 1 로 (붙여넣기 원본이 깨져도 좌표가 어긋나면 안 된다) */
+    const spanOf = (td: Element, name: string) => {
+      const n = parseInt(td.getAttribute(name) || '1', 10);
+      return Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 1;
+    };
+
+    // 바로 아래 단계만 훑는다. 그냥 querySelectorAll 로 훑으면 **표 안에 든 표**의 행·칸까지
+    // 딸려와 좌표가 통째로 어긋난다(구글 독스가 표를 중첩해 내보내는 경우가 있다).
+    const rows = Array.from(table.querySelectorAll(
+      ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr'
+    ));
+
+    rows.forEach((tr, r) => {
+      const line = at(r);
+      let c = 0;
+      Array.from(tr.querySelectorAll(':scope > th, :scope > td')).forEach(td => {
+        while (taken.has(`${r}:${c}`)) c++;
         const value = (td.textContent ?? '').replace(/\s+/g, ' ').trim();
-        const span = parseInt(td.getAttribute('colspan') || '1', 10);
-        cells.push(value);
-        for (let i = 1; i < span; i++) cells.push('');
+        const colSpan = spanOf(td, 'colspan');
+        // 브라우저와 같이 남은 행 수까지만 인정한다. 그대로 두면 마지막 행의 큰 rowspan 이
+        // 있지도 않은 행을 만들어 빈 줄이 줄줄이 붙는다.
+        const rowSpan = Math.min(spanOf(td, 'rowspan'), rows.length - r);
+        line[c] = value;
+        // 덮이는 칸은 빈 값으로 둔다 — 값을 반복해 넣으면 병합을 풀었을 때 같은 값이 여러 번 나온다
+        for (let dr = 0; dr < rowSpan; dr++) {
+          for (let dc = 0; dc < colSpan; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            taken.add(`${r + dr}:${c + dc}`);
+            at(r + dr)[c + dc] = '';
+          }
+        }
+        if (rowSpan * colSpan > 1) merges.push({ r, c, rowSpan, colSpan });
+        c += colSpan;
       });
-      if (cells.some(c => c !== '')) grid.push(cells);
     });
-    return grid.length > 0 ? grid : null;
+
+    if (grid.length === 0) return null;
+    return dropEmptyRows({ grid: grid.map(row => Array.from(row, v => v ?? '')), merges });
   } catch {
     return null;
   }
+}
+
+/**
+ * 값도 병합도 없는 빈 행을 걷어낸다 — 문서에서 복사하면 빈 줄이 섞여 온다.
+ * 병합이 걸친 행은 남긴다(안쪽 행을 지우면 rowSpan 이 가리키는 범위가 어긋난다).
+ */
+function dropEmptyRows({ grid, merges }: ClipboardGrid): ClipboardGrid {
+  const inMerge = new Set<number>();
+  merges.forEach(m => { for (let i = 0; i < m.rowSpan; i++) inMerge.add(m.r + i); });
+
+  const keep = grid.map((row, r) => inMerge.has(r) || row.some(v => v !== ''));
+  if (keep.every(Boolean)) return { grid, merges };
+
+  const shifted: number[] = [];
+  let n = 0;
+  keep.forEach((k, r) => { shifted[r] = n; if (k) n++; });
+  return {
+    grid: grid.filter((_, r) => keep[r]),
+    merges: merges.map(m => ({ ...m, r: shifted[m.r] }))
+  };
+}
+
+function parseTsvGrid(text: string | null | undefined): ClipboardGrid | null {
+  const grid = parseTsv(text);
+  return grid ? { grid, merges: [] } : null;
 }
 
 function parseTsv(text: string | null | undefined): string[][] | null {
@@ -405,7 +502,7 @@ function withThousands(core: string): string | null {
 export function tableToText(t: TableBlock, indent = '     '): string {
   const lines: string[] = [];
   if (t.caption.trim()) lines.push(`${indent}${t.caption.trim()}`);
-  lines.push(`${indent}${t.headers.map(oneLine).join('\t')}`);
+  lines.push(`${indent}${t.headers.map((h, c) => (isCovered(t, HEADER_ROW, c) ? '' : oneLine(h))).join('\t')}`);
   t.rows.forEach((row, r) =>
     // 덮인 칸은 빈칸으로 — 값을 반복하면 붙여넣기 했을 때 같은 값이 여러 번 들어간다
     lines.push(`${indent}${row.map((v, c) => (isCovered(t, r, c) ? '' : oneLine(v))).join('\t')}`)
@@ -432,7 +529,11 @@ function spanAttrs(t: TableBlock, r: number, c: number): string {
 export function tableToHtml(t: TableBlock): string {
   const cell = 'border:0.5pt solid #7f7f7f;padding:1pt 4pt;font-size:9pt;vertical-align:middle;';
   const th = `${cell}background:#f2f2f2;font-weight:bold;text-align:center;`;
-  const head = t.headers.map(h => `<td style="${th}">${cellHtml(h)}</td>`).join('');
+  const head = t.headers
+    .map((h, c) => (isCovered(t, HEADER_ROW, c)
+      ? ''
+      : `<td style="${th}"${spanAttrs(t, HEADER_ROW, c)}>${cellHtml(h)}</td>`))
+    .join('');
   const body = t.rows
     .map((row, r) => {
       const tds = row

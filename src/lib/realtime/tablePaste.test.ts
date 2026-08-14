@@ -10,7 +10,7 @@ import * as Y from 'yjs';
 import { buildDocFromState, type EditorState } from './buildDoc';
 import { materialize } from './materialize';
 import { replaceTableContent, setCellAt, setHeaderAt, mergeCells } from './yOps';
-import { isTableBlock, type TableBlock } from '../reportBlocks';
+import { isTableBlock, HEADER_ROW, type TableBlock } from '../reportBlocks';
 
 const CAT = '1';
 const META = { teamId: 1, year: 2026, weekNum: 33, seedId: 's' };
@@ -96,5 +96,62 @@ describe('표 붙여넣기 — 통째 교체', () => {
     const doc = docWithTable();
     replaceTableContent(doc, CAT, 'current', 't1', HEADERS, ROWS);
     expect(readTable(doc).caption).toBe('문의 대응');
+  });
+});
+
+describe('붙여넣은 표의 병합', () => {
+  it('제목줄 가로 병합이 새 열 id 로 다시 심긴다 (엑셀 2단 제목줄)', () => {
+    const doc = docWithTable();
+    replaceTableContent(
+      doc, CAT, 'current', 't1',
+      ['기준시점', '전체사업자', '', '', 'CMS출금등록', '', ''],
+      [['', '전체', '법인', '개인', '전체', '법인', '개인'], ['25년말', '1', '2', '3', '4', '5', '6']],
+      undefined,
+      [
+        { r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 3 },
+        { r: HEADER_ROW, c: 4, rowSpan: 1, colSpan: 3 }
+      ]
+    );
+
+    const t = readTable(doc);
+    expect(t.merges).toEqual([
+      { r: HEADER_ROW, c: 1, rowSpan: 1, colSpan: 3 },
+      { r: HEADER_ROW, c: 4, rowSpan: 1, colSpan: 3 }
+    ]);
+  });
+
+  it('본문 병합도 함께 들어온다', () => {
+    const doc = docWithTable();
+    replaceTableContent(
+      doc, CAT, 'current', 't1',
+      ['구분', '항목', '건수'],
+      [['1월', '가입', '10'], ['', '해지', '3']],
+      undefined,
+      [{ r: 0, c: 0, rowSpan: 2, colSpan: 1 }]
+    );
+    expect(readTable(doc).merges).toEqual([{ r: 0, c: 0, rowSpan: 2, colSpan: 1 }]);
+  });
+
+  it('표 밖을 가리키는 병합은 버린다', () => {
+    const doc = docWithTable();
+    replaceTableContent(
+      doc, CAT, 'current', 't1', ['a', 'b'], [['1', '2']],
+      undefined,
+      [
+        { r: 0, c: 0, rowSpan: 3, colSpan: 1 },          // 행 밖
+        { r: 0, c: 1, rowSpan: 1, colSpan: 4 },          // 열 밖
+        { r: HEADER_ROW, c: 0, rowSpan: 2, colSpan: 1 }  // 제목줄↔본문 교차
+      ]
+    );
+    expect(readTable(doc).merges).toBeUndefined();
+  });
+
+  it('병합을 안 주면 옛 병합이 남지 않는다', () => {
+    const doc = docWithTable();
+    mergeCells(doc, CAT, 'current', 't1', 0, 0, 1, 1);
+    expect(readTable(doc).merges).toHaveLength(1);
+
+    replaceTableContent(doc, CAT, 'current', 't1', HEADERS, ROWS);
+    expect(readTable(doc).merges).toBeUndefined();
   });
 });

@@ -9,8 +9,8 @@
  */
 import * as Y from 'yjs';
 import { generateKeyBetween } from 'fractional-indexing';
-import { generateId, isTableBlock, type ContentBlock } from '../reportBlocks';
-import { BLOCK, MERGE, META, ROOT, SCHEMA_VERSION, SIDES, cellKey, type Side } from './schema';
+import { generateId, isTableBlock, HEADER_ROW, type ContentBlock } from '../reportBlocks';
+import { BLOCK, HDR_ROW_ID, MERGE, META, ROOT, SCHEMA_VERSION, SIDES, cellKey, type Side } from './schema';
 
 /** ReportItem/SummaryData 의 contents 형태 */
 export type EditorState = Record<string, { current: ContentBlock[]; next: ContentBlock[] }>;
@@ -116,12 +116,15 @@ function buildTableBlock(b: Extract<ContentBlock, { type: 'table' }>, order: str
   (b.merges ?? []).forEach((mg, i) => {
     const r1 = mg.r, c1 = mg.c;
     const r2 = mg.r + mg.rowSpan - 1, c2 = mg.c + mg.colSpan - 1;
-    if (r1 < 0 || c1 < 0 || r2 >= rowIds.length || c2 >= colIds.length) return;
+    if (c1 < 0 || c2 >= colIds.length) return;
+    // r = -1 은 제목줄(rows 밖) — sentinel id 로 가리킨다. 본문과 걸친 병합은 표현할 수 없다.
+    if (r1 === HEADER_ROW ? r2 !== HEADER_ROW : r1 < 0 || r2 >= rowIds.length) return;
     if (mg.rowSpan * mg.colSpan <= 1) return;
+    const rowIdAt = (r: number) => (r === HEADER_ROW ? HDR_ROW_ID : rowIds[r]);
     const em = new Y.Map();
-    em.set(MERGE.anchorRow, rowIds[r1]);
+    em.set(MERGE.anchorRow, rowIdAt(r1));
     em.set(MERGE.anchorCol, colIds[c1]);
-    em.set(MERGE.endRow, rowIds[r2]);
+    em.set(MERGE.endRow, rowIdAt(r2));
     em.set(MERGE.endCol, colIds[c2]);
     merges.set(`m${i}`, em);
   });

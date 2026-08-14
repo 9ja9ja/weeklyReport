@@ -370,17 +370,28 @@ function WriteContent() {
       )
     : localWriteOps(setReportData as (u: (p: EditorState) => EditorState) => void, isLocked);
 
-  const copyCurrentToNext = (catId: number) => {
-    if (readOnly) return;
-    const currentBlocks = blocksOf(catId, 'current');
-    if (currentBlocks.length === 0) return;
-    const existingNext = blocksOf(catId, 'next');
+  /** 한쪽 열을 통째로 갈아끼우기 전 확인 — 공동 편집이면 남의 작업도 사라진다고 알린다 */
+  const copyInto = (catId: number, side: 'current' | 'next', source: ContentBlock[], label: string) => {
+    if (readOnly || source.length === 0) return;
     const warn = collab
-      ? '기존 차주 내용을 덮어씁니다. 다른 팀원이 작성한 내용도 함께 사라집니다. 계속하시겠습니까?'
-      : '기존 차주 내용을 덮어씁니다. 계속하시겠습니까?';
-    if (existingNext.length > 0 && !confirm(warn)) return;
-    ops.copyCurrentToNext(catId, currentBlocks);
+      ? `기존 ${label} 내용을 덮어씁니다. 다른 팀원이 작성한 내용도 함께 사라집니다. 계속하시겠습니까?`
+      : `기존 ${label} 내용을 덮어씁니다. 계속하시겠습니까?`;
+    if (blocksOf(catId, side).length > 0 && !confirm(warn)) return;
+    ops.copyBlocksInto(catId, side, source);
   };
+
+  const copyCurrentToNext = (catId: number) =>
+    copyInto(catId, 'next', blocksOf(catId, 'current'), '차주');
+
+  /**
+   * 지난 주 금주 진행사항을 이번 주 금주로 가져온다.
+   *
+   * 자동 이월은 "지난 주 차주 예정"을 이번 주 금주로 옮기는데, 금주 결과만 적고 차주 예정을
+   * 비워두는 사람이 많아 그 경우 빈칸으로 시작한다. 같은 일을 이어서 쓰는 주에는 지난 주
+   * 금주를 그대로 끌어오는 편이 빠르다.
+   */
+  const copyPrevCurrent = (catId: number) =>
+    copyInto(catId, 'current', prevBlocksOf(catId, 'current'), '금주');
 
   // textarea 높이 자동 조절 헬퍼
   const handleTextareaResize = (e: React.FormEvent<HTMLTextAreaElement>) => {
@@ -775,7 +786,14 @@ function WriteContent() {
                         </div>
                       </div>
                       <div className="inner-box" style={{ borderTopColor: 'var(--primary)' }}>
-                        <h4 style={{ color: 'var(--primary)', marginBottom: '1.2rem', fontWeight: 800, fontSize: '0.95rem' }}>[이번 주] 금주 진행사항</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem', marginBottom: '1.2rem' }}>
+                          <h4 style={{ color: 'var(--primary)', fontWeight: 800, fontSize: '0.95rem', margin: 0 }}>[이번 주] 금주 진행사항</h4>
+                          {/* 차주 예정을 안 적고 마감하는 사람이 많아 자동 이월이 빈칸으로 온다.
+                              같은 일을 이어 쓰는 주에는 지난 주 금주를 그대로 끌어오는 게 빠르다. */}
+                          {!readOnly && prevBlocksOf(cat.id, 'current').length > 0 && (
+                            <button onClick={() => copyPrevCurrent(cat.id)} className="btn" title="[지난 주 작성본]의 금주 진행사항을 그대로 가져옵니다" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', whiteSpace: 'nowrap', background: 'var(--btn-bg)', color: 'var(--foreground)', border: '1px solid var(--border)' }}>← 전주 금주 복사</button>
+                          )}
+                        </div>
                         {renderBlocks(cat.id, 'current', blocksOf(cat.id, 'current'))}
                         {!readOnly && addBlockBar(cat.id, 'current')}
                       </div>
