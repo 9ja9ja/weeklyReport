@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser, type LoginUser } from '@/lib/UserContext';
 import Link from 'next/link';
 import { getIsoWeek, getWeekRange, formatDateShort } from '@/lib/weekUtils';
+import { isExecutiveGroup } from '@/lib/roles';
 import WeekCalendar from '@/components/WeekCalendar';
 
 interface TeamUser {
@@ -216,7 +217,7 @@ export default function Home() {
                         background: on ? 'var(--primary)' : 'var(--surface-dim)',
                         color: on ? 'white' : 'var(--text-muted)'
                       }}>
-                        {q ? `${hit}` : t.division === '임원' ? `${t.users.length}` : `${done}/${t.users.length}`}
+                        {q ? `${hit}` : isExecutiveGroup(t) ? `${t.users.length}` : `${done}/${t.users.length}`}
                       </span>
                     </button>
                   );
@@ -233,7 +234,7 @@ export default function Home() {
                 </div>
               )}
               {shown.map(team => {
-                const isExec = team.division === '임원'; // 임원은 작성 안 함 → 로그인만
+                const isExec = isExecutiveGroup(team); // 임원은 작성 안 함 → 로그인만
                 return (
                   <div key={team.id} className="glass-panel" style={{ padding: '1.4rem 1.8rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.6rem', flexWrap: 'wrap' }}>

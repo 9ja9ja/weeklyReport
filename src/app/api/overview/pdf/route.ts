@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
+import { isExecutiveGroup } from '@/lib/roles';
 import { buildOverviewHtml, type DocTeam } from '@/lib/overviewDoc';
 import { getWeekRange, getNextWeek } from '@/lib/weekUtils';
 import type { ContentBlock } from '@/lib/reportBlocks';
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 
-    const [teams, summaries, locks, reports] = await Promise.all([
+    const [allTeams, summaries, locks, reports] = await Promise.all([
       prisma.team.findMany({
         where: teamId ? { id: teamId } : {},
         orderBy: { orderIdx: 'asc' },
@@ -67,6 +68,9 @@ export async function POST(request: Request) {
         include: { user: { select: { name: true } }, items: { include: { category: { select: { teamId: true } } } } }
       })
     ]);
+
+    // 화면(전체 취합본)과 같은 대상이어야 한다 — 임원 그룹은 보고를 쓰지 않으므로 뺀다
+    const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
     const summaryMap = new Map(summaries.map(s => [s.teamId, safeState(s.contents)]));
     const lockMap = new Map(locks.map(l => [l.teamId, l]));

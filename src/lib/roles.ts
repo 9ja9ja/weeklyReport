@@ -1,4 +1,17 @@
 /**
+ * 임원 그룹의 구분(division) 값.
+ *
+ * 임원은 보고를 쓰지 않고 조회만 하는 계정이라, 이 구분에 속한 팀은 "작성하는 팀"이 아니다.
+ * 전체 취합본·엑셀·PDF 에서 빼고, 작성 현황도 완료/전체로 세지 않는다.
+ * (문자열 비교라 구분 이름을 바꾸면 여기부터 고쳐야 한다 — 그래서 한 곳에 둔다)
+ */
+export const EXECUTIVE_DIVISION = '임원';
+
+export function isExecutiveGroup(team: { division?: string | null }): boolean {
+  return (team.division ?? '').trim() === EXECUTIVE_DIVISION;
+}
+
+/**
  * 화면에 보이는 직함.
  *
  * 임원 계정은 권한상 한 종류지만 호칭은 대표·부사장·이사로 제각각이다. 직급(position)이

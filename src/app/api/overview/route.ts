@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
+import { isExecutiveGroup } from '@/lib/roles';
 import { summaryStage } from '@/lib/summaryStage';
 import type { ContentBlock } from '@/lib/reportBlocks';
 
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: '전체 취합본 조회 권한이 없습니다.' }, { status: 403 });
     }
 
-    const [teams, summaries, locks, reports] = await Promise.all([
+    const [allTeams, summaries, locks, reports] = await Promise.all([
       prisma.team.findMany({
         orderBy: { orderIdx: 'asc' },
         include: {
@@ -66,6 +67,10 @@ export async function GET(request: Request) {
         include: { user: { select: { name: true } }, items: { include: { category: { select: { teamId: true } } } } }
       })
     ]);
+
+    // 임원 그룹은 보고를 쓰지 않는다. 목록에 두면 영원히 '미작성'으로 남아
+    // 취합 현황(잠금 2/11 · 작성 8/11)의 분모만 늘린다.
+    const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
     const summaryMap = new Map(summaries.map(s => [s.teamId, safeParse(s.contents)]));
     const lockMap = new Map(locks.map(l => [l.teamId, l]));

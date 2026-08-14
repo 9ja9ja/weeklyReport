@@ -6,7 +6,7 @@
  * 제자리로 돌아가 그 화면이 거짓말이 된다.
  */
 import { describe, it, expect } from 'vitest';
-import { roleLabel, positionRank, compareMembers, type OrderedMember } from './roles';
+import { roleLabel, positionRank, compareMembers, isExecutiveGroup, type OrderedMember } from './roles';
 
 const m = (name: string, position = '', extra: Partial<OrderedMember> = {}): OrderedMember =>
   ({ isPrimary: true, orderIdx: 999, position, name, ...extra });
@@ -83,5 +83,28 @@ describe('compareMembers', () => {
       m('이재민', '부팀장/매니저', { isPrimary: false }),
       m('하재현', '매니저')
     ])).toEqual(['하재현', '이재민']);
+  });
+});
+
+/**
+ * 임원 그룹 판정 — 전체 취합본·엑셀·PDF 에서 빼는 기준이다.
+ * 잘못 판정하면 보고를 쓰는 팀이 통째로 문서에서 빠지거나,
+ * 쓰지 않는 그룹이 영원히 '미작성'으로 남아 취합 현황 분모를 늘린다.
+ */
+describe('isExecutiveGroup', () => {
+  it('구분이 임원인 팀만 임원 그룹이다', () => {
+    expect(isExecutiveGroup({ division: '임원' })).toBe(true);
+    expect(isExecutiveGroup({ division: 'Pharos' })).toBe(false);
+    expect(isExecutiveGroup({ division: '개발' })).toBe(false);
+  });
+
+  it('구분이 비어 있거나 없으면 일반 팀으로 본다', () => {
+    expect(isExecutiveGroup({ division: '' })).toBe(false);
+    expect(isExecutiveGroup({ division: null })).toBe(false);
+    expect(isExecutiveGroup({})).toBe(false);
+  });
+
+  it('앞뒤 공백은 무시한다 — 설정 화면에서 섞여 들어온다', () => {
+    expect(isExecutiveGroup({ division: ' 임원 ' })).toBe(true);
   });
 });
