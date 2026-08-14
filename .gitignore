@@ -57,3 +57,7 @@ backup/
 # Cloudflare Worker 로컬 시크릿
 .dev.vars
 .wrangler/
+
+# Claude Code 개인 설정 — 모델·개인 허용목록이라 사람마다 다르다.
+# 공유할 설정은 .claude/settings.json 에 둔다(계속 추적).
+.claude/settings.local.json
