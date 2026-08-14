@@ -649,7 +649,7 @@ export default function SummaryPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
             <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>작성 현황</span>
             <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 600 }}>
-              {teamUsers.filter(u => u.hasReport).length}/{teamUsers.length}
+              {teamUsers.filter(u => u.hasReport || u.hasExcuse).length}/{teamUsers.length}
             </span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
