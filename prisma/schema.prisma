@@ -34,6 +34,7 @@ model Team {
   summaryLocks    SummaryLock[]
   sharedDocs      SharedDoc[]
   docActivities   DocActivity[]
+  writingExcuses  WritingExcuse[]
 }
 
 model User {
@@ -51,9 +52,10 @@ model User {
   roleLocked   Boolean  @default(false)
   createdAt    DateTime @default(now())
 
-  reports       Report[]
-  userTeams     UserTeam[]
-  docActivities DocActivity[]
+  reports        Report[]
+  userTeams      UserTeam[]
+  docActivities  DocActivity[]
+  writingExcuses WritingExcuse[]
 
   improvements         Improvement[]        @relation("improvementAuthor")
   improvementAssigned  Improvement[]        @relation("improvementAssignee")
@@ -299,6 +301,20 @@ model DocActivity {
 
   @@unique([environment, teamId, year, weekNum, userId])
   @@index([environment, teamId, year, weekNum])
+}
+
+// "이번 주 보고 없음" 선언 — 미작성과 구분해 팀장이 의도적 무보고인지 알 수 있게 한다.
+model WritingExcuse {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id])
+  year      Int
+  weekNum   Int
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, year, weekNum, userId])
 }
 
 // 저장 멱등성 — DB 커밋 후 ACK 만 유실되면 같은 update 가 재전송된다.
