@@ -18,6 +18,7 @@ interface TeamUser {
   hasReport?: boolean;
   hasExcuse?: boolean;
   prevHasReport?: boolean;
+  prevHasExcuse?: boolean;
   lastUpdated?: string | null;
 }
 
@@ -287,7 +288,9 @@ export default function Home() {
                           <div style={{ width: '80px', textAlign: 'center', flexShrink: 0 }}>
                             {user.prevHasReport
                               ? <span style={{ color: '#22c55e', fontWeight: 600, fontSize: '0.8rem', opacity: 0.65 }}>완료</span>
-                              : <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.8rem' }}>미작성</span>}
+                              : user.prevHasExcuse
+                                ? <span style={{ color: '#9ca3af', fontWeight: 600, fontSize: '0.8rem', opacity: 0.65 }}>작성없음</span>
+                                : <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.8rem' }}>미작성</span>}
                           </div>
                           <div style={{ width: '80px', textAlign: 'center', flexShrink: 0 }}>
                             {user.hasReport

@@ -68,6 +68,10 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
+    if (!await requireTeamAccess(me, teamId)) {
+      return forbidden('해당 팀의 보고를 작성할 권한이 없습니다.');
+    }
+
     const lock = await prisma.summaryLock.findUnique({
       where: { teamId_year_weekNum: { teamId, year, weekNum } }
     });
