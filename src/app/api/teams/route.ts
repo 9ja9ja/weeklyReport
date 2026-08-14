@@ -41,6 +41,17 @@ export async function GET(request: Request) {
       // 판정은 collabStatus 한곳에 모아 둔다(화면마다 규칙이 갈리면 숫자가 어긋난다).
       const status = await loadCollabStatus(teams, [{ year, weekNum }, prev]);
 
+      // "이번 주 보고 없음" 선언 — 공동 편집 여부와 무관하게 동일한 규칙으로, 금주/전주를 한 번에 조회
+      const excuses = await prisma.writingExcuse.findMany({
+        where: {
+          teamId: { in: teams.map(t => t.id) },
+          OR: [{ year, weekNum }, { year: prev.year, weekNum: prev.weekNum }]
+        },
+        select: { teamId: true, userId: true, year: true, weekNum: true }
+      });
+      const excuseKey = (teamId: number, userId: number, y: number, w: number) => `${teamId}-${userId}-${y}-${w}`;
+      const excuseSet = new Set(excuses.map(e => excuseKey(e.teamId, e.userId, e.year, e.weekNum)));
+
       const result = teams.map(team => ({
         id: team.id,
         name: team.name,
@@ -68,6 +79,8 @@ export async function GET(request: Request) {
             isPrimary: ut.isPrimary,
             hasReport: curCollab ? !!curEdit : !!cur,
             prevHasReport: preCollab ? !!preEdit : !!pre,
+            hasExcuse: excuseSet.has(excuseKey(team.id, ut.user.id, year, weekNum)),
+            prevHasExcuse: excuseSet.has(excuseKey(team.id, ut.user.id, prev.year, prev.weekNum)),
             lastUpdated: (curCollab ? curEdit : cur?.updatedAt) || null
           };
         })

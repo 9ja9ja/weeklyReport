@@ -33,8 +33,8 @@ export async function GET(request: Request) {
       ({ year: y, weekNum: w } = getPrevWeek(y, w));
     }
 
-    // 리포트 + 잠금 상태 + 공동 편집 이력을 한 번에 조회
-    const [reports, locks, team] = await Promise.all([
+    // 리포트 + 잠금 상태 + 공동 편집 이력 + "보고 없음" 선언을 한 번에 조회
+    const [reports, locks, team, excuses] = await Promise.all([
       prisma.report.findMany({
         where: { userId, OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) },
         select: { year: true, weekNum: true, updatedAt: true }
@@ -50,6 +50,10 @@ export async function GET(request: Request) {
           collabFromYear: true, collabFromWeek: true,
           collabUntilYear: true, collabUntilWeek: true
         }
+      }),
+      prisma.writingExcuse.findMany({
+        where: { userId, teamId: user.teamId, OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) },
+        select: { year: true, weekNum: true }
       })
     ]);
 
@@ -59,6 +63,7 @@ export async function GET(request: Request) {
 
     const reportMap = new Map(reports.map(r => [`${r.year}-${r.weekNum}`, r.updatedAt]));
     const lockMap = new Map(locks.map(l => [`${l.year}-${l.weekNum}`, l]));
+    const excuseSet = new Set(excuses.map(e => `${e.year}-${e.weekNum}`));
 
     const result = weeks.map(wk => {
       const key = `${wk.year}-${wk.weekNum}`;
@@ -71,6 +76,7 @@ export async function GET(request: Request) {
         // 개인 보고가 없는 주차라 '보기'(개인 보고 조회)는 화면에서 감춘다
         isCollab,
         hasReport: isCollab ? !!editedAt : reportMap.has(key),
+        hasExcuse: excuseSet.has(key),
         updatedAt: (isCollab ? editedAt : reportMap.get(key)) || null,
         isLocked: lock?.isLocked ?? false,
         // 작성마감 주차도 더는 쓸 수 없다 — 화면이 [수정] 버튼을 열어두면
