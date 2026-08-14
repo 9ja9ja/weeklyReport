@@ -307,11 +307,11 @@ model DocActivity {
 model WritingExcuse {
   id        Int      @id @default(autoincrement())
   teamId    Int
-  team      Team     @relation(fields: [teamId], references: [id])
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   year      Int
   weekNum   Int
   userId    Int
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@unique([teamId, year, weekNum, userId])
