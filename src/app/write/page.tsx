@@ -322,8 +322,24 @@ function WriteContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year, weekNum, items })
       });
-      if (res.ok) alert('저장되었습니다.');
-      else {
+      if (res.ok) {
+        alert('저장되었습니다.');
+        // 저장 직후 재조회 없이도 "이번 주 작성 없음" 버튼이 곧바로 숨겨지도록,
+        // 방금 실제로 내용을 저장한 팀들의 hasReport 를 로컬 상태에 바로 반영한다.
+        // (활성 탭만이 아니라 겸직으로 함께 저장된 다른 팀도 포함)
+        const savedTeamIds = new Set<number>();
+        items.forEach(i => {
+          const tid = teamOfCategory.get(i.categoryId);
+          if (tid != null) savedTeamIds.add(tid);
+        });
+        if (savedTeamIds.size > 0) {
+          setHasReportByTeam(prev => {
+            const next = { ...prev };
+            savedTeamIds.forEach(tid => { next[tid] = true; });
+            return next;
+          });
+        }
+      } else {
         const err = await res.json();
         alert(err.error || '저장 실패');
       }
@@ -881,7 +897,11 @@ function WriteContent() {
           {excuseActive ? (
             <div className="glass-panel" style={{ padding: '3rem 2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               <p style={{ fontSize: '0.95rem' }}>이번 주는 &quot;작성 없음&quot;으로 처리되어 있습니다.</p>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.4rem' }}>작성할 내용이 생기면 위의 [취소하고 작성하기] 버튼을 눌러주세요.</p>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.4rem' }}>
+                {stageOfActive === 'open'
+                  ? '작성할 내용이 생기면 위의 [취소하고 작성하기] 버튼을 눌러주세요.'
+                  : '작성 기간이 마감되어 취소할 수 없습니다.'}
+              </p>
             </div>
           ) : partGroups.map(part => (
             <div key={part.id} className="glass-panel" style={{ padding: '2rem' }}>
