@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib/auth';
 import { getPrevWeek } from '@/lib/weekUtils';
+import { loadCollabStatus } from '@/lib/collabStatus';
+import { summaryStage } from '@/lib/summaryStage';
 
 export async function GET(request: Request) {
   const me = await currentUserId();
@@ -31,28 +33,51 @@ export async function GET(request: Request) {
       ({ year: y, weekNum: w } = getPrevWeek(y, w));
     }
 
-    // 리포트 + 잠금 상태를 한 번에 조회
-    const [reports, locks] = await Promise.all([
+    // 리포트 + 잠금 상태 + 공동 편집 이력을 한 번에 조회
+    const [reports, locks, team] = await Promise.all([
       prisma.report.findMany({
         where: { userId, OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) },
         select: { year: true, weekNum: true, updatedAt: true }
       }),
       prisma.summaryLock.findMany({
         where: { teamId: user.teamId, OR: weeks.map(wk => ({ year: wk.year, weekNum: wk.weekNum })) },
-        select: { year: true, weekNum: true, isLocked: true }
+        select: { year: true, weekNum: true, isLocked: true, isClosed: true }
+      }),
+      prisma.team.findUnique({
+        where: { id: user.teamId },
+        select: {
+          id: true,
+          collabFromYear: true, collabFromWeek: true,
+          collabUntilYear: true, collabUntilWeek: true
+        }
       })
     ]);
 
-    const reportMap = new Map(reports.map(r => [`${r.year}-${r.weekNum}`, r.updatedAt]));
-    const lockMap = new Map(locks.map(l => [`${l.year}-${l.weekNum}`, l.isLocked]));
+    // 함께 작성한 주차는 개인 Report 가 없다. Report 만 보면 이미 작성한 주차가
+    // '미작성' 으로 남아 팀 현황(10/14)과 내 현황이 어긋난다.
+    const collab = await loadCollabStatus(team ? [team] : [], weeks);
 
-    const result = weeks.map(wk => ({
-      year: wk.year,
-      weekNum: wk.weekNum,
-      hasReport: reportMap.has(`${wk.year}-${wk.weekNum}`),
-      updatedAt: reportMap.get(`${wk.year}-${wk.weekNum}`) || null,
-      isLocked: lockMap.get(`${wk.year}-${wk.weekNum}`) ?? false
-    }));
+    const reportMap = new Map(reports.map(r => [`${r.year}-${r.weekNum}`, r.updatedAt]));
+    const lockMap = new Map(locks.map(l => [`${l.year}-${l.weekNum}`, l]));
+
+    const result = weeks.map(wk => {
+      const key = `${wk.year}-${wk.weekNum}`;
+      const isCollab = team ? collab.isCollab(team.id, wk.year, wk.weekNum) : false;
+      const editedAt = team ? collab.editedAt(team.id, userId, wk.year, wk.weekNum) : null;
+      const lock = lockMap.get(key);
+      return {
+        year: wk.year,
+        weekNum: wk.weekNum,
+        // 개인 보고가 없는 주차라 '보기'(개인 보고 조회)는 화면에서 감춘다
+        isCollab,
+        hasReport: isCollab ? !!editedAt : reportMap.has(key),
+        updatedAt: (isCollab ? editedAt : reportMap.get(key)) || null,
+        isLocked: lock?.isLocked ?? false,
+        // 작성마감 주차도 더는 쓸 수 없다 — 화면이 [수정] 버튼을 열어두면
+        // 열리지 않는 편집기로 보내게 된다
+        stage: summaryStage(lock)
+      };
+    });
 
     return NextResponse.json(result);
   } catch (error) {

@@ -95,6 +95,14 @@ export async function unfreezeRoom(room: string): Promise<RoomCallResult> {
 }
 
 /**
+ * 문서가 치환됐다(복원·취합본 반영). 그 룸은 구세대이므로 접속자를 끊어 새 룸으로 옮긴다.
+ * 알리지 않으면 접속자는 옛 내용을 계속 보고, 재접속 전까지 화면이 진실원본과 어긋난다.
+ */
+export async function announceGeneration(room: string, docGeneration: number): Promise<RoomCallResult> {
+  return sendRoomCommand(room, { type: 'generation', docGeneration });
+}
+
+/**
  * 즉시 저장. 디바운스(최대 6초)를 기다리지 않고 지금 DB 에 반영한다.
  * 사용자가 [저장]을 눌렀을 때 쓴다 — 자동 저장이 있어도 눌러서 확인하고 싶어 한다.
  */

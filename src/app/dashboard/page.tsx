@@ -8,7 +8,7 @@ import WeekCalendar from '@/components/WeekCalendar';
 import { type ContentBlock, isTableBlock } from '@/lib/reportBlocks';
 import { TableBlockView } from '@/components/TableBlock';
 
-interface WeekStatus { year: number; weekNum: number; hasReport: boolean; updatedAt: string | null; isLocked?: boolean; }
+interface WeekStatus { year: number; weekNum: number; hasReport: boolean; updatedAt: string | null; isLocked?: boolean; isCollab?: boolean; stage?: 'open' | 'closed' | 'locked'; }
 interface Category { id: number; major: string; middle: string; }
 
 type CateData = { current: ContentBlock[]; next: ContentBlock[] };
@@ -138,16 +138,20 @@ export default function DashboardPage() {
               <div style={{ width: '80px', textAlign: 'center' }}>
                 {ws.isLocked
                   ? <span style={{ color: 'var(--primary)', fontWeight: 700 }}>취합완료</span>
+                  : ws.stage === 'closed'
+                  ? <span style={{ color: '#d97706', fontWeight: 700 }}>작성마감</span>
                   : ws.hasReport
                     ? <span style={{ color: '#22c55e', fontWeight: 700 }}>작성완료</span>
                     : <span style={{ color: '#ef4444', fontWeight: 600 }}>미작성</span>}
               </div>
               <div style={{ width: '120px', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{formatDT(ws.updatedAt)}</div>
               <div className="status-actions" style={{ width: '120px', textAlign: 'center', display: 'flex', gap: '0.3rem', justifyContent: 'center' }}>
-                {ws.hasReport && (
+                {/* 함께 작성한 주차는 개인 보고가 없다 — 열어봐야 빈 모달이라 감춘다(내용은 작성 화면에 있다) */}
+                {ws.hasReport && !ws.isCollab && (
                   <button onClick={() => openWeekModal(ws.year, ws.weekNum)} className="btn" style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}>보기</button>
                 )}
-                {!ws.isLocked && (
+                {/* 작성마감 주차는 편집기가 읽기전용으로 열린다 — 버튼을 남겨두면 헛걸음이 된다 */}
+                {!ws.isLocked && ws.stage !== 'closed' && (
                   <button onClick={() => router.push(`/write?userId=${userId}&name=${encodeURIComponent(userName)}&year=${ws.year}&weekNum=${ws.weekNum}`)} className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}>
                     {ws.hasReport ? '수정' : '작성'}
                   </button>

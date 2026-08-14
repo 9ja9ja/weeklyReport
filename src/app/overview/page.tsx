@@ -15,6 +15,8 @@ interface OvTeam {
   name: string;
   division: string;
   isLocked: boolean;
+  /** 작성마감 — 팀원 입력이 끝나고 팀장이 취합본을 정리하는 중 */
+  isClosed?: boolean;
   lockedAt: string | null;
   hasSummary: boolean;
   hasContent: boolean;
@@ -351,10 +353,10 @@ export default function OverviewPage() {
             })()}
 
             {teams.map(t => {
-              const state = t.isLocked ? 'locked' : t.hasContent ? 'writing' : 'empty';
-              const color = state === 'locked' ? '#16a34a' : state === 'writing' ? '#d97706' : '#94a3b8';
-              const bg = state === 'locked' ? 'rgba(34,197,94,0.10)' : state === 'writing' ? 'rgba(217,119,6,0.10)' : 'var(--surface-dim)';
-              const label = state === 'locked' ? '잠금' : state === 'writing' ? '작성중' : '미작성';
+              const state = t.isLocked ? 'locked' : t.isClosed ? 'closed' : t.hasContent ? 'writing' : 'empty';
+              const color = state === 'locked' ? '#16a34a' : state === 'empty' ? '#94a3b8' : '#d97706';
+              const bg = state === 'locked' ? 'rgba(34,197,94,0.10)' : state === 'empty' ? 'var(--surface-dim)' : 'rgba(217,119,6,0.10)';
+              const label = state === 'locked' ? '취합완료' : state === 'closed' ? '작성마감' : state === 'writing' ? '작성중' : '미작성';
               const on = selectedTeamId === t.id;
               return (
                 <button
@@ -468,7 +470,7 @@ export default function OverviewPage() {
                               <td rowSpan={teamCatCount} colSpan={4} style={{ fontWeight: 700, textAlign: 'center', verticalAlign: 'middle', background: 'var(--surface-dim)', fontSize: '0.85rem' }}>
                                 {team.name}
                                 <div style={{ marginTop: '0.3rem', fontSize: '0.68rem', fontWeight: 600, color: team.isLocked ? '#16a34a' : '#d97706' }}>
-                                  {team.isLocked ? '잠금' : '작성중'}
+                                  {team.isLocked ? '취합완료' : team.isClosed ? '작성마감' : '작성중'}
                                 </div>
                               </td>
                             ) : (
@@ -482,7 +484,7 @@ export default function OverviewPage() {
                                     </div>
                                   )}
                                   <div style={{ marginTop: '0.3rem', fontSize: '0.68rem', fontWeight: 600, color: team.isLocked ? '#16a34a' : '#d97706' }}>
-                                    {team.isLocked ? '잠금' : '작성중'}
+                                    {team.isLocked ? '취합완료' : team.isClosed ? '작성마감' : '작성중'}
                                   </div>
                                 </td>
                               </>

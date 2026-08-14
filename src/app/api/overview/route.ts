@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
+import { summaryStage } from '@/lib/summaryStage';
 import type { ContentBlock } from '@/lib/reportBlocks';
 
 type CateData = { current: ContentBlock[]; next: ContentBlock[] };
@@ -117,6 +118,8 @@ export async function GET(request: Request) {
         name: team.name,
         division: team.division,
         isLocked: lock?.isLocked ?? false,
+        isClosed: lock?.isClosed ?? false,
+        stage: summaryStage(lock),
         lockedAt: lock?.lockedAt ?? null,
         hasSummary: summaryMap.has(team.id),
         hasContent: filled,

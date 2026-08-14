@@ -258,7 +258,9 @@ export function useSharedDoc(
       patch({
         mode: 'realtime', legacyReason: '', doc, provider, origin, undo, localUser,
         master: first.master, locked: first.isLocked, frozen: false,
-        readOnly: first.isLocked,
+        // 쓰기 가능 여부는 토큰이 정한다. isLocked(취합완료)만 보면 작성마감 주차에서
+        // 편집기가 열린 채로 Worker 가 모든 편집을 버려, 오류 없이 입력이 사라진다.
+        readOnly: first.readOnly,
         revision: first.revision, peers: readPeers()
       });
     })().catch(() => toLegacy('실시간 편집에 연결하지 못했습니다. 기존 방식으로 작성합니다.'));

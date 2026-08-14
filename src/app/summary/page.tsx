@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useHistory } from '@/lib/useHistory';
 import { useUser } from '@/lib/UserContext';
-import { isCollabWeek } from '@/lib/collabWeek';
+import { canMasterEditAt, type SummaryStage } from '@/lib/summaryStage';
 import { getNextWeek, getDefaultWeek } from '@/lib/weekUtils';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
@@ -70,7 +70,8 @@ export default function SummaryPage() {
   const [majors, setMajors] = useState<MajorInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
+  /** 주차 단계 — 작성중 → 작성마감 → 취합완료 */
+  const [stage, setStage] = useState<SummaryStage>('open');
   /** 이 팀·주차가 공동 편집인가 */
   const [collabWeek, setCollabWeek] = useState(false);
   const { isMasterOrAbove, userId: currentUserId, teamId } = useUser();
@@ -86,9 +87,11 @@ export default function SummaryPage() {
   const [includeAuthor, setIncludeAuthor] = useState(true);
   const [teamUsers, setTeamUsers] = useState<{ id: number; name: string; role: string; hasReport: boolean; lastUpdated: string | null }[]>([]);
 
-  // 공동 편집 주차의 취합본은 공유 문서의 미러다. 여기서 고치면 룸의 다음 저장이
-  // 곧바로 되돌려 팀장이 다듬은 내용이 몇 초 뒤 사라진다. 조회·잠금만 남긴다.
-  const isEditMode = isMasterOrAbove && !isLocked && !collabWeek;
+  const isLocked = stage === 'locked';
+  // 공동 편집 주차의 취합본은 공유 문서의 미러라, 팀원 룸이 살아있는 동안 고치면
+  // 룸의 다음 저장이 몇 초 뒤 덮어쓴다. 그래서 [작성 마감] 으로 팀원 입력을 멈춘
+  // 뒤에만 편집을 연다. 개인 작성 주차는 룸이 없어 예전처럼 바로 편집한다.
+  const isEditMode = isMasterOrAbove && canMasterEditAt(stage, collabWeek);
   const showCopyButtons = isLocked;
 
   // 파트 > 대분류 > 중분류 계층 (대분류 이름은 파트가 다르면 중복될 수 있음)
@@ -175,14 +178,8 @@ export default function SummaryPage() {
       const myTeam = Array.isArray(teamsData) ? teamsData.find((t: { id: number }) => t.id === teamId) : null;
       setTeamUsers(myTeam?.users ?? []);
       const sumData = await sumRes.json();
-      setIsLocked(sumData?.isLocked ?? false);
-
-      try {
-        const tRes = await fetch('/api/teams');
-        const tData = await tRes.json();
-        const t = Array.isArray(tData) ? tData.find((x: { id: number }) => x.id === teamId) : null;
-        setCollabWeek(!!t && isCollabWeek(t, year, weekNum));
-      } catch { setCollabWeek(false); }
+      setStage((sumData?.stage as SummaryStage) ?? 'open');
+      setCollabWeek(!!sumData?.collab);
       if (sumData?.contents) { setInitialState(JSON.parse(sumData.contents)); }
       else { setInitialState(await loadFromUsers()); }
       setCopyExclude({});
@@ -209,6 +206,9 @@ export default function SummaryPage() {
 
   const handleReset = async () => {
     if (isLocked) return;
+    // 화면에서 감췄어도 여기서 한 번 더 막는다 — 공동 편집 주차에는 개인 보고가 없어
+    // 재조회가 곧 전체 삭제가 된다.
+    if (collabWeek) return;
     if (!confirm('개별 사용자들이 입력한 원본을 다시 불러오시겠습니까?')) return;
     setLoading(true);
     try { setInitialState(await loadFromUsers()); } finally { setLoading(false); }
@@ -218,18 +218,37 @@ export default function SummaryPage() {
     if (isLocked) return;
     setSaving(true);
     try {
-      await fetch('/api/reports/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, contents: JSON.stringify(aggregatedMap) }) });
+      const res = await fetch('/api/reports/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, contents: JSON.stringify(aggregatedMap) }) });
+      // 거부(잠금·공동 편집 주차 등)를 성공으로 알리면, 저장된 줄 알고 화면을 떠나
+      // 다듬은 내용을 통째로 잃는다. 서버가 보낸 사유를 그대로 보여준다.
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || '저장 실패');
+        return;
+      }
       alert('취합본이 저장되었습니다.');
     } catch { alert('저장 실패'); }
     finally { setSaving(false); }
   };
 
-  const handleToggleLock = async () => {
-    const action = isLocked ? '잠금을 해제' : '잠금을 설정';
-    if (!confirm(`${year}년 ${weekNum}주차 ${action}하시겠습니까?${!isLocked ? '\n잠금 시 개별 입력과 편집이 차단됩니다.' : ''}`)) return;
-    const res = await fetch('/api/reports/summary/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year, weekNum, teamId, isLocked: !isLocked }) });
-    if (res.ok) { setIsLocked(!isLocked); alert(isLocked ? '잠금 해제됨' : '잠금 설정됨'); }
-    else { const d = await res.json(); alert(d.error || '실패'); }
+  /** 단계 전환 — 작성중 ↔ 작성마감 ↔ 취합완료 */
+  const changeStage = async (next: SummaryStage, confirmText: string) => {
+    // 미작성 인원이 있어도 막지 않는다 — 안 쓴 사람을 기다리느라 마감을 못 하면
+    // 취합 자체가 멈춘다. 대신 누가 안 썼는지는 알려주고 판단은 팀장이 한다.
+    const pending = next === 'open' ? [] : teamUsers.filter(u => !u.hasReport);
+    const notice = pending.length
+      ? `\n\n미작성 ${pending.length}명: ${pending.map(u => u.name).join(', ')}\n그대로 진행할 수 있습니다.`
+      : '';
+    if (!confirm(`${year}년 ${weekNum}주차 — ${confirmText}${notice}`)) return;
+    const res = await fetch('/api/reports/summary/lock', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year, weekNum, teamId, stage: next })
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(d.error || '실패'); return; }
+    setStage((d.stage as SummaryStage) ?? next);
+    // 작성마감 시점의 공유 문서 내용을 다시 읽어와야 팀원의 마지막 편집까지 정리 대상에 들어온다
+    await fetchData();
   };
 
   const nextWeekLabel = (() => {
@@ -514,14 +533,21 @@ export default function SummaryPage() {
 
   return (
     <div className="glass-panel" style={{ padding: '2rem', marginTop: '2rem' }}>
-      {collabWeek && !isLocked && (
+      {collabWeek && stage === 'open' && (
         <div style={{ background: 'var(--primary-alpha-subtle)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.9rem 1.4rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
-          이 주차는 팀이 <strong>주간보고 화면에서 함께 작성</strong>합니다. 여기서는 조회와 잠금만 할 수 있습니다.
+          이 주차는 팀이 <strong>주간보고 화면에서 함께 작성</strong>하는 중입니다.
+          취합본을 정리하려면 <strong>[작성 마감]</strong> 으로 팀원 입력을 먼저 멈춰주세요.
+        </div>
+      )}
+      {collabWeek && stage === 'closed' && (
+        <div style={{ background: 'rgba(217,119,6,0.10)', border: '1px solid #d97706', borderRadius: '8px', padding: '0.9rem 1.4rem', marginBottom: '1rem', fontSize: '0.9rem', color: '#92400e' }}>
+          <strong>작성마감</strong> 상태입니다. 팀원 입력이 멈췄고, 지금부터 팀장이 정리할 수 있습니다.
+          여기서 <strong>저장</strong>하면 팀 공동 편집본에도 그대로 반영됩니다.
         </div>
       )}
       {isLocked && (
         <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.8rem 1.5rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 600, fontSize: '0.9rem' }}>
-          🔒 이 주차의 취합본은 잠겨있습니다.
+          ▣ 취합완료된 주차입니다. 고치려면 취합완료를 해제해주세요.
         </div>
       )}
 
@@ -554,16 +580,37 @@ export default function SummaryPage() {
 
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         {isEditMode && <>
-          <button onClick={handleReset} className="btn" style={{ fontSize: '0.9rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}>⟲ 원본 재조회</button>
+          {/* 원본 재조회는 개인 보고에서 다시 읽어온다. 공동 편집 주차에는 개인 보고가 없어
+              누르는 순간 내용이 비고, 그대로 저장하면 팀 문서가 통째로 비워진다. */}
+          {!collabWeek && (
+            <button onClick={handleReset} className="btn" style={{ fontSize: '0.9rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}>⟲ 원본 재조회</button>
+          )}
           <button onClick={undoAndResize} disabled={!canUndo} className="btn" style={{ fontSize: '0.9rem' }}>↶ 실행취소</button>
           <button onClick={redoAndResize} disabled={!canRedo} className="btn" style={{ fontSize: '0.9rem' }}>↷ 다시실행</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ padding: '0.4rem 2rem', fontSize: '1rem' }}>{saving ? '저장중...' : '저장'}</button>
         </>}
-        {isMasterOrAbove && (
-          <button onClick={handleToggleLock} className="btn" style={{ fontSize: '0.9rem', padding: '0.4rem 1.2rem', background: isLocked ? '#22c55e' : '#ef4444', color: 'white', border: 'none' }}>
-            {isLocked ? '🔓 잠금 해제' : '🔒 잠금 설정'}
-          </button>
-        )}
+        {isMasterOrAbove && (() => {
+          const btn = (label: string, next: SummaryStage, confirmText: string, bg: string) => (
+            <button key={label} onClick={() => changeStage(next, confirmText)} className="btn"
+              style={{ fontSize: '0.9rem', padding: '0.4rem 1.2rem', background: bg, color: 'white', border: 'none' }}>
+              {label}
+            </button>
+          );
+          // 공동 편집 주차는 작성마감을 거쳐야 정리할 수 있다. 개인 작성 주차는 기존 2단계 그대로.
+          if (collabWeek && stage === 'open') {
+            return btn('작성 마감', 'closed', '팀원 입력을 마감하고 취합 정리를 시작할까요?\n마감 후에는 팀원이 주간보고 화면에서 수정할 수 없습니다.', '#d97706');
+          }
+          if (collabWeek && stage === 'closed') {
+            return <>
+              {btn('마감 취소', 'open', '팀원 입력을 다시 열까요?\n정리한 내용은 그대로 두고 팀원이 이어서 작성합니다.', '#64748b')}
+              {btn('취합 완료', 'locked', '취합을 완료할까요?\n완료 후에는 취합본도 수정할 수 없습니다.', '#ef4444')}
+            </>;
+          }
+          if (stage === 'locked') {
+            return btn('취합완료 해제', collabWeek ? 'closed' : 'open', '취합완료를 해제할까요?', '#22c55e');
+          }
+          return btn('취합 완료', 'locked', '취합을 완료할까요?\n완료 후에는 개별 입력과 편집이 차단됩니다.', '#ef4444');
+        })()}
       </div>
 
       {!loading && teamUsers.length > 0 && (

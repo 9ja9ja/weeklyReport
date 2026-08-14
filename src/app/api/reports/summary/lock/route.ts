@@ -4,6 +4,7 @@ import { requireTeamMaster, currentUserId, unauthorized } from '@/lib/auth';
 import { currentEnvironment, isCollabWeek } from '@/lib/realtime/persist';
 import { roomName } from '@/lib/realtime/token';
 import { freezeRoomForLock, announceLocked, announceUnlocked, unfreezeRoom } from '@/lib/realtime/roomControl';
+import { summaryStage, membersCanWrite, STAGE_LABEL, type SummaryStage } from '@/lib/summaryStage';
 
 export async function GET(request: Request) {
     const me = await currentUserId();
@@ -36,6 +37,8 @@ export async function GET(request: Request) {
             teamName: t.name,
             division: t.division,
             isLocked: l?.isLocked ?? false,
+            isClosed: l?.isClosed ?? false,
+            stage: summaryStage(l),
             lockedAt: l?.lockedAt ?? null,
             lockedByName: l?.lockedBy != null ? userMap.get(l.lockedBy) ?? null : null
           };
@@ -46,23 +49,38 @@ export async function GET(request: Request) {
     }
   }
 
-  if (!teamId) return NextResponse.json({ isLocked: false });
+  if (!teamId) return NextResponse.json({ isLocked: false, isClosed: false, stage: 'open' });
 
   try {
     const lock = await prisma.summaryLock.findUnique({
       where: { teamId_year_weekNum: { teamId, year, weekNum } }
     });
-    return NextResponse.json({ isLocked: lock?.isLocked ?? false, lockedBy: lock?.lockedBy ?? null, lockedAt: lock?.lockedAt ?? null });
+    return NextResponse.json({
+      isLocked: lock?.isLocked ?? false,
+      isClosed: lock?.isClosed ?? false,
+      stage: summaryStage(lock),
+      lockedBy: lock?.lockedBy ?? null,
+      lockedAt: lock?.lockedAt ?? null,
+      closedAt: lock?.closedAt ?? null
+    });
   } catch {
-    return NextResponse.json({ isLocked: false });
+    return NextResponse.json({ isLocked: false, isClosed: false, stage: 'open' });
   }
 }
 
+/**
+ * 단계 전환 — 작성중 ↔ 작성마감 ↔ 취합완료.
+ *
+ * 새 화면은 `{ stage }` 로 목표 단계를 보낸다. 예전 `{ isLocked }` 도 계속 받는다
+ * (공동 편집 주차에서 취합완료를 풀면 작성중이 아니라 작성마감으로 돌아간다 —
+ *  팀원 입력을 다시 열지 말지는 별도 판단이라 자동으로 열지 않는다).
+ */
 export async function POST(request: Request) {
   try {
     const me = await currentUserId();
     if (!me) return unauthorized();
-    const { year, weekNum, teamId, isLocked } = await request.json();
+    const body = await request.json();
+    const { year, weekNum, teamId } = body as { year: number; weekNum: number; teamId: number };
     if (!teamId) return NextResponse.json({ error: 'teamId required' }, { status: 400 });
     if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
 
@@ -75,19 +93,37 @@ export async function POST(request: Request) {
     });
     const collab = !!team && isCollabWeek(team, year, weekNum);
 
-    // 공동 편집 주차가 아니면 기존 동작 그대로 (개인 Report 모드)
+    const current = await prisma.summaryLock.findUnique({
+      where: { teamId_year_weekNum: { teamId, year, weekNum } },
+      select: { isLocked: true, isClosed: true }
+    });
+
+    const target = resolveTarget(body, collab, current);
+    if (!target.ok) return NextResponse.json({ error: target.error }, { status: 400 });
+    const stage = target.stage;
+
+    const isLocked = stage === 'locked';
+    // 취합완료는 작성마감을 지나온 상태다. 풀었을 때 작성중으로 튀지 않게 함께 세운다.
+    const isClosed = collab && stage !== 'open';
+    const now = new Date();
+    const data = {
+      isLocked, lockedBy: isLocked ? me : null, lockedAt: isLocked ? now : null,
+      isClosed, closedBy: isClosed ? me : null, closedAt: isClosed ? now : null
+    };
+
+    // 공동 편집 주차가 아니면 룸이 없다 — 기존 동작 그대로 (개인 Report 모드)
     if (!collab) {
       const result = await prisma.summaryLock.upsert({
         where: { teamId_year_weekNum: { teamId, year, weekNum } },
-        update: { isLocked, lockedBy: isLocked ? me : null, lockedAt: isLocked ? new Date() : null },
-        create: { teamId, year, weekNum, isLocked, lockedBy: isLocked ? me : null, lockedAt: isLocked ? new Date() : null }
+        update: data,
+        create: { teamId, year, weekNum, ...data }
       });
-      return NextResponse.json({ success: true, isLocked: result.isLocked });
+      return NextResponse.json({ success: true, isLocked: result.isLocked, isClosed: result.isClosed, stage: summaryStage(result) });
     }
 
     // ── 공동 편집 주차: freeze → 최종 반영 → 커밋 → 방송 ──────────
     //
-    // 잠금은 Cloudflare(룸)와 Neon(DB)에 걸친 분산 작업이라 순서만으로는 원자성이 없다.
+    // 단계 전환은 Cloudflare(룸)와 Neon(DB)에 걸친 분산 작업이라 순서만으로는 원자성이 없다.
     // freeze 로 새 편집을 막고, 그 시점 상태를 확정한 뒤 커밋한다.
     const environment = currentEnvironment();
     const doc = await prisma.sharedDoc.findUnique({
@@ -96,17 +132,20 @@ export async function POST(request: Request) {
     });
     const room = doc ? roomName(environment, teamId, year, weekNum, doc.docGeneration) : null;
 
+    // 쓸 수 있던 주차를 닫을 때만 얼린다. 마지막 편집을 확정본에 담아야 하기 때문이다.
+    const closingWrites = membersCanWrite(current) && !membersCanWrite({ isLocked, isClosed });
+
     let froze = false;
-    if (isLocked && room) {
+    if (closingWrites && room) {
       const r = await freezeRoomForLock(room);
       froze = r.ok;
-      // freeze 는 됐는데 최종 저장이 실패했다면 잠그면 안 된다 —
+      // freeze 는 됐는데 최종 저장이 실패했다면 닫으면 안 된다 —
       // 확정본에 마지막 편집이 빠진 채로 굳고, 그 편집은 되살릴 방법이 없다.
       const saved = (r.body as { saved?: boolean } | undefined)?.saved;
       if (r.ok && saved === false) {
         await unfreezeRoom(room);
         return NextResponse.json(
-          { error: '마지막 편집을 저장하지 못해 잠글 수 없습니다. 잠시 후 다시 시도해주세요.' },
+          { error: `마지막 편집을 저장하지 못해 ${STAGE_LABEL[stage]} 처리할 수 없습니다. 잠시 후 다시 시도해주세요.` },
           { status: 503 }
         );
       }
@@ -118,8 +157,8 @@ export async function POST(request: Request) {
       committed = await prisma.$transaction(async tx => {
         const lock = await tx.summaryLock.upsert({
           where: { teamId_year_weekNum: { teamId, year, weekNum } },
-          update: { isLocked, lockedBy: isLocked ? me : null, lockedAt: isLocked ? new Date() : null },
-          create: { teamId, year, weekNum, isLocked, lockedBy: isLocked ? me : null, lockedAt: isLocked ? new Date() : null }
+          update: data,
+          create: { teamId, year, weekNum, ...data }
         });
         // 세대를 올려 구 epoch 를 든 늦은 저장을 밀어낸다.
         // updateMany 는 새 값을 돌려주지 않으므로 update 로 실제 값을 받는다 —
@@ -139,18 +178,49 @@ export async function POST(request: Request) {
       throw e;
     }
 
-    // 실제 커밋된 값만 방송한다
+    // 실제 커밋된 값만 방송한다. 팀원 화면의 읽기전용 여부는 단계가 정한다 —
+    // 작성마감과 취합완료 모두 룸에는 '잠김'으로 알린다(둘 다 팀원은 못 쓴다).
     if (room && committed.writeEpoch != null) {
-      if (isLocked) await announceLocked(room, committed.writeEpoch);
-      else await announceUnlocked(room, committed.writeEpoch);
+      if (membersCanWrite(committed.lock)) await announceUnlocked(room, committed.writeEpoch);
+      else await announceLocked(room, committed.writeEpoch);
     }
 
     return NextResponse.json({
       success: true,
       isLocked: committed.lock.isLocked,
+      isClosed: committed.lock.isClosed,
+      stage: summaryStage(committed.lock),
       ...(committed.writeEpoch != null ? { writeEpoch: committed.writeEpoch } : {})
     });
   } catch (error) {
     return NextResponse.json({ error: '실패' }, { status: 500 });
   }
+}
+
+type TargetResult = { ok: true; stage: SummaryStage } | { ok: false; error: string };
+
+/** 요청 본문 → 목표 단계. 예전 `{ isLocked }` 형태도 받는다. */
+function resolveTarget(
+  body: { stage?: unknown; isLocked?: unknown },
+  collab: boolean,
+  current: { isLocked: boolean; isClosed: boolean } | null
+): TargetResult {
+  if (typeof body.stage === 'string') {
+    const stage = body.stage as SummaryStage;
+    if (stage !== 'open' && stage !== 'closed' && stage !== 'locked') {
+      return { ok: false, error: '알 수 없는 단계입니다.' };
+    }
+    // 개인 작성 주차에는 작성마감 단계가 없다. 룸이 없어 팀원 입력을 따로 멈출 필요가 없다.
+    if (stage === 'closed' && !collab) {
+      return { ok: false, error: '이 주차는 공동 편집이 아니라 작성마감 단계가 없습니다.' };
+    }
+    return { ok: true, stage };
+  }
+  if (typeof body.isLocked === 'boolean') {
+    if (body.isLocked) return { ok: true, stage: 'locked' };
+    // 공동 편집 주차의 취합완료 해제는 작성마감으로 돌아간다.
+    // 곧바로 작성중이 되면 팀원이 다시 쓰기 시작해, 풀자마자 취합본이 흔들린다.
+    return { ok: true, stage: collab && current?.isClosed ? 'closed' : 'open' };
+  }
+  return { ok: false, error: '변경할 단계를 지정해주세요.' };
 }

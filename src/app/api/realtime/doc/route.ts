@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { readSignedBody, bytesToBase64 } from '@/lib/realtime/serverAuth';
 import { parseRoomName, roomNameOf } from '@/lib/realtime/token';
 import { currentEnvironment } from '@/lib/realtime/persist';
+import { membersCanWrite } from '@/lib/summaryStage';
 
 /** 요약본 룸의 초기 상태 */
 async function briefDocResponse(env: string, year: number, weekNum: number, gen: number) {
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
 
   const lock = await prisma.summaryLock.findUnique({
     where: { teamId_year_weekNum: { teamId, year, weekNum } },
-    select: { isLocked: true }
+    select: { isLocked: true, isClosed: true }
   });
 
   return NextResponse.json({
@@ -100,6 +101,9 @@ export async function POST(request: Request) {
     writeEpoch: doc.writeEpoch,
     revision: doc.revision,
     seedId: doc.seedId,
-    isLocked: lock?.isLocked === true
+    // 룸에게 이 값은 "쓰기를 받아도 되는가"다. 작성마감도 저장이 거부되므로 잠금과 같이 취급한다 —
+    // isLocked 만 보면 하이버네이션 뒤 onLoad·resync 가 룸을 다시 열어, 편집은 브로드캐스트되는데
+    // 저장은 계속 거부되는 상태가 된다.
+    isLocked: !membersCanWrite(lock)
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

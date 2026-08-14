@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireTeamMaster, requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { compareMembers } from '@/lib/roles';
+import { loadCollabStatus } from '@/lib/collabStatus';
 import { roleChangeError, LOCKED_MESSAGE } from '@/lib/roleChange';
 import bcrypt from 'bcryptjs';
 
@@ -43,12 +44,31 @@ export async function GET(request: Request) {
       : rows;
 
     if (withStatus && year && weekNum) {
-      return NextResponse.json(users.map(u => ({
-        id: u.id, name: u.name, role: u.role, teamId: u.teamId, position: u.position,
-        isPrimary: teamId ? u.userTeams.some(t => t.teamId === teamId && t.isPrimary) : true,
-        hasReport: (u as typeof u & { reports?: unknown[] }).reports?.length ? true : false,
-        lastUpdated: (u as typeof u & { reports?: { updatedAt: Date }[] }).reports?.[0]?.updatedAt || null
-      })));
+      // 공동 편집 주차는 개인 Report 가 없다 — Report 만 보면 팀 전체가 '미작성' 이 된다.
+      // 메인·취합본(/api/teams)과 같은 규칙을 써야 화면마다 숫자가 갈리지 않는다.
+      const team = teamId
+        ? await prisma.team.findUnique({
+            where: { id: teamId },
+            select: {
+              id: true,
+              collabFromYear: true, collabFromWeek: true,
+              collabUntilYear: true, collabUntilWeek: true
+            }
+          })
+        : null;
+      const status = await loadCollabStatus(team ? [team] : [], [{ year, weekNum }]);
+      const collab = team ? status.isCollab(team.id, year, weekNum) : false;
+
+      return NextResponse.json(users.map(u => {
+        const report = (u as typeof u & { reports?: { updatedAt: Date }[] }).reports?.[0];
+        const editedAt = team ? status.editedAt(team.id, u.id, year, weekNum) : null;
+        return {
+          id: u.id, name: u.name, role: u.role, teamId: u.teamId, position: u.position,
+          isPrimary: teamId ? u.userTeams.some(t => t.teamId === teamId && t.isPrimary) : true,
+          hasReport: collab ? !!editedAt : !!report,
+          lastUpdated: (collab ? editedAt : report?.updatedAt) || null
+        };
+      }));
     }
 
     return NextResponse.json(users.map(u => ({

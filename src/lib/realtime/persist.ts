@@ -135,9 +135,11 @@ export async function persistUpdate(input: PersistInput): Promise<PersistResult>
 
       const lock = await tx.summaryLock.findUnique({
         where: { teamId_year_weekNum: { teamId, year, weekNum } },
-        select: { isLocked: true }
+        select: { isLocked: true, isClosed: true }
       });
-      if (lock?.isLocked) return { ok: false as const, reason: 'locked' as const };
+      // 작성마감·취합완료 주차에는 새 문서를 만들지 않는다. 입력이 끝난 주차에
+      // 빈 문서가 생기면 팀장이 정리 중인 취합본과 어긋난다.
+      if (lock?.isLocked || lock?.isClosed) return { ok: false as const, reason: 'locked' as const };
 
       const doc = new Y.Doc();
       Y.applyUpdate(doc, update);
@@ -191,11 +193,13 @@ export async function persistUpdate(input: PersistInput): Promise<PersistResult>
     //    WebSocket 의 isReadOnly 는 /save 직접 호출을 막지 못하므로 여기가 최종 방어선이다.
     const lock = await tx.summaryLock.findUnique({
       where: { teamId_year_weekNum: { teamId, year, weekNum } },
-      select: { isLocked: true }
+      select: { isLocked: true, isClosed: true }
     });
 
     if (op === 'normal') {
-      if (lock?.isLocked) return { ok: false as const, reason: 'locked' as const, revision: existing.revision };
+      // 작성마감도 잠금과 똑같이 팀원 저장을 막는다. 여기가 뚫리면 팀장이 취합본을
+      // 정리하는 동안 룸의 늦은 저장이 들어와, 정리한 내용을 되돌려버린다.
+      if (lock?.isLocked || lock?.isClosed) return { ok: false as const, reason: 'locked' as const, revision: existing.revision };
 
       // '<' 가 아니라 '!==' — 클라이언트가 더 큰 값을 보내 통과시키는 것도 막는다
       if (input.docGeneration !== undefined && input.docGeneration !== existing.docGeneration) {

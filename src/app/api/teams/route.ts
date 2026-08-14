@@ -3,9 +3,8 @@ import { prisma } from '@/lib/db';
 import { requireSuperAdmin, currentUserId, unauthorized } from '@/lib/auth';
 import { getPrevWeek, getIsoWeek } from '@/lib/weekUtils';
 import { COLLAB_WRITE_READY } from '@/lib/realtime/collabReady';
-import { isCollabWeek } from '@/lib/collabWeek';
 import { compareMembers } from '@/lib/roles';
-import { currentEnvironment } from '@/lib/realtime/persist';
+import { loadCollabStatus } from '@/lib/collabStatus';
 
 export async function GET(request: Request) {
   try {
@@ -39,23 +38,8 @@ export async function GET(request: Request) {
       });
 
       // 공동 편집 주차는 개인 Report 가 없다. 작성 여부는 실제 편집 이력(DocActivity)으로 본다 —
-      // 이월 시드만으로 "작성함"이 되지 않도록 편집 이벤트를 따로 기록해 둔 값이다.
-      const env = currentEnvironment();
-      const collabTeamIds = teams
-        .filter(t => isCollabWeek(t, year, weekNum) || isCollabWeek(t, prev.year, prev.weekNum))
-        .map(t => t.id);
-      const activities = collabTeamIds.length
-        ? await prisma.docActivity.findMany({
-            where: {
-              environment: env,
-              teamId: { in: collabTeamIds },
-              OR: [{ year, weekNum }, { year: prev.year, weekNum: prev.weekNum }]
-            },
-            select: { teamId: true, userId: true, year: true, weekNum: true, lastEditedAt: true }
-          })
-        : [];
-      const actKey = (t: number, u: number, y: number, w: number) => `${t}:${u}:${y}:${w}`;
-      const actMap = new Map(activities.map(a => [actKey(a.teamId, a.userId, a.year, a.weekNum), a]));
+      // 판정은 collabStatus 한곳에 모아 둔다(화면마다 규칙이 갈리면 숫자가 어긋난다).
+      const status = await loadCollabStatus(teams, [{ year, weekNum }, prev]);
 
       const result = teams.map(team => ({
         id: team.id,
@@ -69,10 +53,10 @@ export async function GET(request: Request) {
             { isPrimary: b.isPrimary, orderIdx: b.orderIdx, position: b.user.position, name: b.user.name }
           ))
           .map(ut => {
-          const curCollab = isCollabWeek(team, year, weekNum);
-          const preCollab = isCollabWeek(team, prev.year, prev.weekNum);
-          const curAct = actMap.get(actKey(team.id, ut.user.id, year, weekNum));
-          const preAct = actMap.get(actKey(team.id, ut.user.id, prev.year, prev.weekNum));
+          const curCollab = status.isCollab(team.id, year, weekNum);
+          const preCollab = status.isCollab(team.id, prev.year, prev.weekNum);
+          const curEdit = status.editedAt(team.id, ut.user.id, year, weekNum);
+          const preEdit = status.editedAt(team.id, ut.user.id, prev.year, prev.weekNum);
           const cur = ut.user.reports.find(r => r.year === year && r.weekNum === weekNum);
           const pre = ut.user.reports.find(r => r.year === prev.year && r.weekNum === prev.weekNum);
           return {
@@ -82,9 +66,9 @@ export async function GET(request: Request) {
             teamId: ut.user.teamId,
             position: ut.user.position,
             isPrimary: ut.isPrimary,
-            hasReport: curCollab ? !!curAct?.lastEditedAt : !!cur,
-            prevHasReport: preCollab ? !!preAct?.lastEditedAt : !!pre,
-            lastUpdated: (curCollab ? curAct?.lastEditedAt : cur?.updatedAt) || null
+            hasReport: curCollab ? !!curEdit : !!cur,
+            prevHasReport: preCollab ? !!preEdit : !!pre,
+            lastUpdated: (curCollab ? curEdit : cur?.updatedAt) || null
           };
         })
       }));

@@ -13,6 +13,7 @@ import { usePresence, PART } from '@/components/usePresence';
 import YTextArea from '@/components/YTextArea';
 import { materialize } from '@/lib/realtime/materialize';
 import { isCollabWeek, type TeamCollabRange } from '@/lib/collabWeek';
+import { membersCanWriteAt, type SummaryStage } from '@/lib/summaryStage';
 
 type CateData = { current: ContentBlock[], next: ContentBlock[] };
 type EditorState = Record<number, CateData>;
@@ -52,7 +53,8 @@ function WriteContent() {
   const [activeTeamId, setActiveTeamId] = useState<number | null>(null);
   const [catsByTeam, setCatsByTeam] = useState<Record<number, Category[]>>({});
   const [majorsByTeam, setMajorsByTeam] = useState<Record<number, MajorResponse[]>>({});
-  const [lockByTeam, setLockByTeam] = useState<Record<number, boolean>>({});
+  /** 팀별 주차 단계 — 작성중 / 작성마감 / 취합완료 */
+  const [stageByTeam, setStageByTeam] = useState<Record<number, SummaryStage>>({});
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,7 +62,9 @@ function WriteContent() {
 
   const categories = activeTeamId ? catsByTeam[activeTeamId] ?? [] : [];
   const majorList = activeTeamId ? majorsByTeam[activeTeamId] ?? [] : [];
-  const lockedByApi = activeTeamId ? lockByTeam[activeTeamId] ?? false : false;
+  const stageOfActive = activeTeamId ? stageByTeam[activeTeamId] ?? 'open' : 'open';
+  /** 작성마감·취합완료 모두 팀원 입력은 막힌다. 문구만 달라진다. */
+  const lockedByApi = !membersCanWriteAt(stageOfActive);
 
   /** categoryId → teamId 역매핑 (저장 시 잠긴 팀 항목을 걸러내려고) */
   const teamOfCategory = (() => {
@@ -161,12 +165,16 @@ function WriteContent() {
   const fetchReportsForWeek = async () => {
     setLoading(true);
     try {
-      // 소속 팀 전부의 잠금 상태
+      // 소속 팀 전부의 진행 단계
       const lockRes = await fetch(`/api/reports/summary/lock?year=${year}&weekNum=${weekNum}&all=true`);
       const lockData = await lockRes.json();
-      const lockMap: Record<number, boolean> = {};
-      if (Array.isArray(lockData)) lockData.forEach((l: { teamId: number; isLocked: boolean }) => { lockMap[l.teamId] = l.isLocked; });
-      setLockByTeam(lockMap);
+      const stageMap: Record<number, SummaryStage> = {};
+      if (Array.isArray(lockData)) {
+        lockData.forEach((l: { teamId: number; isLocked: boolean; stage?: SummaryStage }) => {
+          stageMap[l.teamId] = l.stage ?? (l.isLocked ? 'locked' : 'open');
+        });
+      }
+      setStageByTeam(stageMap);
 
       const { year: prevY, weekNum: prevW } = getPrevWeek(year, weekNum);
 
@@ -226,7 +234,7 @@ function WriteContent() {
         // 공동 편집 팀은 문서가 알아서 저장한다. 여기 섞으면 서버가 요청 전체를 거부해
         // 같이 보낸 개인 작성 팀까지 저장이 막힌다.
         if (teamIsCollab(tid)) return false;
-        return !lockByTeam[tid];
+        return membersCanWriteAt(stageByTeam[tid] ?? 'open');
       })
       .map(catId => ({
         categoryId: catId,
@@ -276,7 +284,11 @@ function WriteContent() {
     }
 
     if (items.length === 0) {
-      alert(isLocked ? '이 주차는 잠겨있어 저장할 수 없습니다.' : '저장할 내용이 없습니다.');
+      alert(isLocked
+        ? (stageOfActive === 'closed'
+            ? '이 주차는 작성이 마감되어 저장할 수 없습니다.'
+            : '이 주차는 취합이 완료되어 저장할 수 없습니다.')
+        : '저장할 내용이 없습니다.');
       return;
     }
     setShowConfirm(true);
@@ -320,7 +332,9 @@ function WriteContent() {
     ? true
     : collab ? (rt.readOnly || !rt.synced) : lockedByApi;
 
-  const isLocked = collab ? rt.locked : lockedByApi;
+  // 공동 편집 주차는 룸 상태와 단계 중 하나라도 막혔으면 막힌 것으로 본다.
+  // rt.locked 는 취합완료만 반영하므로, 마감 직후 새로 들어온 사람은 이 항으로 걸린다.
+  const isLocked = collab ? (rt.locked || !membersCanWriteAt(stageOfActive)) : lockedByApi;
 
   // 지난주 참고본: 공동 편집으로 전환된 주차에는 개인 Report 가 없다.
   // 그대로 두면 "지난주 작성본"이 전원 빈칸으로 보인다 — 팀 취합본(공유 문서의 미러)을 쓴다.
@@ -593,11 +607,20 @@ function WriteContent() {
 
   return (
     <div style={{ marginTop: '2rem' }}>
-      {/* 잠금 배너 */}
+      {/* 단계 배너 — 작성마감과 취합완료는 둘 다 조회 전용이지만 뜻이 다르다.
+          작성마감은 "팀장이 취합 정리 중", 취합완료는 "이번 주차 끝". */}
       {isLocked && (
-        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '1rem 1.5rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 600 }}>
-          {'\u{1F512}'} {teams.length > 1 ? `${teams.find(t => t.id === activeTeamId)?.name ?? ''} 팀은 ` : ''}
-          이 주차 취합이 완료되어 잠겨있습니다. 조회만 가능합니다.
+        <div style={{
+          background: stageOfActive === 'closed' ? 'rgba(217,119,6,0.10)' : '#fef2f2',
+          border: `1px solid ${stageOfActive === 'closed' ? '#d97706' : '#fca5a5'}`,
+          borderRadius: '8px', padding: '1rem 1.5rem', marginBottom: '1rem',
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          color: stageOfActive === 'closed' ? '#92400e' : '#dc2626', fontWeight: 600
+        }}>
+          ▣ {teams.length > 1 ? `${teams.find(t => t.id === activeTeamId)?.name ?? ''} 팀은 ` : ''}
+          {stageOfActive === 'closed'
+            ? '이 주차 작성이 마감되었습니다. 팀장이 취합본을 정리하는 중이라 조회만 가능합니다.'
+            : '이 주차 취합이 완료되었습니다. 조회만 가능합니다.'}
           {teams.length > 1 && <span style={{ fontWeight: 400, fontSize: '0.85rem' }}>다른 탭은 계속 작성할 수 있습니다.</span>}
         </div>
       )}
@@ -675,7 +698,7 @@ function WriteContent() {
         <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '1.5rem', flexWrap: 'wrap', borderBottom: '2px solid var(--border)', paddingBottom: '0' }}>
           {teams.map(t => {
             const active = t.id === activeTeamId;
-            const locked = lockByTeam[t.id];
+            const locked = !membersCanWriteAt(stageByTeam[t.id] ?? 'open');
             // 공동 편집 팀은 지금 보고 있는 탭만 문서가 열려 있다 — 그 탭은 문서 기준으로 센다
             const source = t.id === activeTeamId && collab ? docState : reportData;
             const edited = Object.keys(source).some(k => {

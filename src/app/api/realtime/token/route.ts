@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib/auth';
 import { currentEnvironment, isCollabWeek } from '@/lib/realtime/persist';
+import { membersCanWrite } from '@/lib/summaryStage';
 import { signToken, roomName } from '@/lib/realtime/token';
 import { tokenSecret, TOKEN_TTL_SEC, isRealtimeConfigured } from '@/lib/realtime/secrets';
 import { ensureWeekDocument, ensureCategoryContainers } from '@/lib/realtime/seed';
@@ -96,14 +97,14 @@ async function issue(teamId: number, year: number, weekNum: number, allowSeed: b
   if (!doc) {
     // 잠긴 주차인데 문서가 없으면 만들 수 없다 — 읽을 것도 없으므로 명확히 알린다
     return NextResponse.json(
-      { error: seeded.reason === 'locked' ? '잠긴 주차의 문서가 없습니다.' : '문서를 준비하지 못했습니다.' },
+      { error: seeded.reason === 'locked' ? '작성이 끝난 주차라 새 문서를 만들지 않습니다.' : '문서를 준비하지 못했습니다.' },
       { status: 409 }
     );
   }
 
   const lock = await prisma.summaryLock.findUnique({
     where: { teamId_year_weekNum: { teamId, year, weekNum } },
-    select: { isLocked: true }
+    select: { isLocked: true, isClosed: true }
   });
   const master = await requireTeamMaster(me, teamId);
 
@@ -115,7 +116,8 @@ async function issue(teamId: number, year: number, weekNum: number, allowSeed: b
     teamId, year, weekNum,
     gen: doc.docGeneration,
     // 잠기면 마스터도 읽기전용이다. 잠금 해제가 먼저다.
-    readOnly: lock?.isLocked === true,
+    // 작성마감도 같다 — 그 뒤 정리는 취합본 화면에서 한다.
+    readOnly: !membersCanWrite(lock),
     master,
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC
   };
