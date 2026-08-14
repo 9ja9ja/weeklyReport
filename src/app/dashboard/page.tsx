@@ -13,7 +13,7 @@ interface Category { id: number; major: string; middle: string; }
 
 type CateData = { current: ContentBlock[]; next: ContentBlock[] };
 
-interface TeamMemberStatus { id: number; name: string; role: string; position?: string; isPrimary?: boolean; hasReport: boolean; lastUpdated: string | null; }
+interface TeamMemberStatus { id: number; name: string; role: string; position?: string; isPrimary?: boolean; hasReport: boolean; hasExcuse?: boolean; lastUpdated: string | null; }
 
 export default function DashboardPage() {
   const { userId, userName, teamId, teamName, isHydrating, isMasterOrAbove } = useUser();
@@ -107,7 +107,8 @@ export default function DashboardPage() {
   if (!userId) return null;
   if (loading) return <div className="glass-panel" style={{ padding: '3rem', maxWidth: '900px', margin: '2rem auto', textAlign: 'center' }}>로딩중...</div>;
 
-  const doneCount = teamStatus.filter(m => m.hasReport).length;
+  // 작성없음(excuse) 선언자도 "더 기다릴 필요 없음" 이라는 의미에서 완료로 센다
+  const doneCount = teamStatus.filter(m => m.hasReport || m.hasExcuse).length;
 
   return (
     <div className="dashboard-layout" style={{ maxWidth: isMasterOrAbove ? '1240px' : '900px', margin: '2rem auto', display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
@@ -176,14 +177,14 @@ export default function DashboardPage() {
               <div key={m.id} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '0.45rem 0.6rem', borderRadius: '6px',
-                background: m.hasReport ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)'
+                background: m.hasReport ? 'rgba(34,197,94,0.08)' : m.hasExcuse ? 'rgba(156,163,175,0.12)' : 'rgba(239,68,68,0.06)'
               }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', minWidth: 0 }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
                   {m.isPrimary === false && <span style={{ fontSize: '0.58rem', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0 0.2rem', flexShrink: 0 }}>겸직</span>}
                 </span>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap', color: m.hasReport ? '#16a34a' : '#dc2626' }}>
-                  {m.hasReport ? '완료' : '미작성'}
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap', color: m.hasReport ? '#16a34a' : m.hasExcuse ? '#9ca3af' : '#dc2626' }}>
+                  {m.hasReport ? '완료' : m.hasExcuse ? '작성없음' : '미작성'}
                   {m.hasReport && m.lastUpdated && (
                     <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.3rem', fontSize: '0.7rem' }}>{formatDT(m.lastUpdated)}</span>
                   )}

@@ -85,7 +85,7 @@ export default function SummaryPage() {
   const [copyExclude, setCopyExclude] = useState<Record<number, boolean>>({});
   const [includeEmpty, setIncludeEmptyLocal] = useState(true);
   const [includeAuthor, setIncludeAuthorLocal] = useState(true);
-  const [teamUsers, setTeamUsers] = useState<{ id: number; name: string; role: string; hasReport: boolean; lastUpdated: string | null }[]>([]);
+  const [teamUsers, setTeamUsers] = useState<{ id: number; name: string; role: string; hasReport: boolean; hasExcuse?: boolean; lastUpdated: string | null }[]>([]);
 
   /** 표시 설정을 서버에 즉시 반영 — 전체 취합본에서 팀별로 읽는다 */
   const patchDisplayPref = useCallback(async (patch: { includeEmpty?: boolean; includeAuthor?: boolean }) => {
@@ -265,7 +265,8 @@ export default function SummaryPage() {
   const changeStage = async (next: SummaryStage, confirmText: string) => {
     // 미작성 인원이 있어도 막지 않는다 — 안 쓴 사람을 기다리느라 마감을 못 하면
     // 취합 자체가 멈춘다. 대신 누가 안 썼는지는 알려주고 판단은 팀장이 한다.
-    const pending = next === 'open' ? [] : teamUsers.filter(u => !u.hasReport);
+    // "이번 주 작성 없음"을 선언한 인원은 의도적으로 안 쓴 것이라 미작성 목록에서 뺀다.
+    const pending = next === 'open' ? [] : teamUsers.filter(u => !u.hasReport && !u.hasExcuse);
     const notice = pending.length
       ? `\n\n미작성 ${pending.length}명: ${pending.map(u => u.name).join(', ')}\n그대로 진행할 수 있습니다.`
       : '';
@@ -656,12 +657,12 @@ export default function SummaryPage() {
               <span key={u.id} style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                 padding: '0.25rem 0.6rem', borderRadius: '4px', fontSize: '0.82rem',
-                background: u.hasReport ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                color: u.hasReport ? '#16a34a' : '#dc2626',
+                background: u.hasReport ? 'rgba(34,197,94,0.1)' : u.hasExcuse ? 'rgba(156,163,175,0.15)' : 'rgba(239,68,68,0.1)',
+                color: u.hasReport ? '#16a34a' : u.hasExcuse ? '#9ca3af' : '#dc2626',
                 fontWeight: 600
               }}>
                 {u.name}
-                <span style={{ fontSize: '0.75rem' }}>{u.hasReport ? '완료' : '미작성'}</span>
+                <span style={{ fontSize: '0.75rem' }}>{u.hasReport ? '완료' : u.hasExcuse ? '작성없음' : '미작성'}</span>
               </span>
             ))}
           </div>
