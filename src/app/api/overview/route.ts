@@ -73,6 +73,7 @@ export async function GET(request: Request) {
     const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
     const summaryMap = new Map(summaries.map(s => [s.teamId, safeParse(s.contents)]));
+    const summaryPrefs = new Map(summaries.map(s => [s.teamId, { includeEmpty: s.includeEmpty, includeAuthor: s.includeAuthor }]));
     const lockMap = new Map(locks.map(l => [l.teamId, l]));
 
     // 취합본이 없는 팀은 개별 보고를 합쳐서 만든다 (항목이 속한 팀 기준)
@@ -118,6 +119,7 @@ export async function GET(request: Request) {
         p.majors.some(m => m.categories.some(c => c.current.length > 0 || c.next.length > 0))
       );
 
+      const prefs = summaryPrefs.get(team.id);
       return {
         id: team.id,
         name: team.name,
@@ -128,6 +130,8 @@ export async function GET(request: Request) {
         lockedAt: lock?.lockedAt ?? null,
         hasSummary: summaryMap.has(team.id),
         hasContent: filled,
+        includeEmpty: prefs?.includeEmpty ?? true,
+        includeAuthor: prefs?.includeAuthor ?? true,
         parts
       };
     });

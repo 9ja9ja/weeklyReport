@@ -83,9 +83,37 @@ export default function SummaryPage() {
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
   const [dragOverBulletId, setDragOverBulletId] = useState<string | null>(null);
   const [copyExclude, setCopyExclude] = useState<Record<number, boolean>>({});
-  const [includeEmpty, setIncludeEmpty] = useState(true);
-  const [includeAuthor, setIncludeAuthor] = useState(true);
+  const [includeEmpty, setIncludeEmptyLocal] = useState(true);
+  const [includeAuthor, setIncludeAuthorLocal] = useState(true);
   const [teamUsers, setTeamUsers] = useState<{ id: number; name: string; role: string; hasReport: boolean; lastUpdated: string | null }[]>([]);
+
+  /** 표시 설정을 서버에 즉시 반영 — 전체 취합본에서 팀별로 읽는다 */
+  const patchDisplayPref = useCallback(async (patch: { includeEmpty?: boolean; includeAuthor?: boolean }) => {
+    if (!teamId) return;
+    try {
+      await fetch('/api/reports/summary', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year, weekNum, teamId, ...patch })
+      });
+    } catch { /* 저장 실패해도 화면 체크는 유지 */ }
+  }, [year, weekNum, teamId]);
+
+  const setIncludeEmpty = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    setIncludeEmptyLocal(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      patchDisplayPref({ includeEmpty: next });
+      return next;
+    });
+  }, [patchDisplayPref]);
+
+  const setIncludeAuthor = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    setIncludeAuthorLocal(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      patchDisplayPref({ includeAuthor: next });
+      return next;
+    });
+  }, [patchDisplayPref]);
 
   const isLocked = stage === 'locked';
   // 공동 편집 주차의 취합본은 공유 문서의 미러라, 팀원 룸이 살아있는 동안 고치면
@@ -182,6 +210,8 @@ export default function SummaryPage() {
       setCollabWeek(!!sumData?.collab);
       if (sumData?.contents) { setInitialState(JSON.parse(sumData.contents)); }
       else { setInitialState(await loadFromUsers()); }
+      setIncludeEmptyLocal(sumData?.includeEmpty ?? true);
+      setIncludeAuthorLocal(sumData?.includeAuthor ?? true);
       setCopyExclude({});
     } catch (e) { console.error(e); }
     finally { setLoading(false); }

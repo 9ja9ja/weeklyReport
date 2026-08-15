@@ -20,6 +20,10 @@ interface OvTeam {
   lockedAt: string | null;
   hasSummary: boolean;
   hasContent: boolean;
+  /** 빈 항목 포함 — 팀별 취합본에서 설정 */
+  includeEmpty: boolean;
+  /** 작성자 표시 — 팀별 취합본에서 설정 */
+  includeAuthor: boolean;
   parts: OvPart[];
 }
 
@@ -38,8 +42,8 @@ export default function OverviewPage() {
   const [teams, setTeams] = useState<OvTeam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [onlyFilled, setOnlyFilled] = useState(true);
-  const [includeAuthor, setIncludeAuthor] = useState(true);
+  // 팀별 취합본에서 설정한 includeEmpty/includeAuthor 를 팀마다 적용한다.
+  // 전역 체크박스는 제거 — 팀별 설정이 진실원본이다.
   /** null 이면 전체 보기, 값이 있으면 그 팀만 */
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [driveReady, setDriveReady] = useState(false);
@@ -84,7 +88,7 @@ export default function OverviewPage() {
       const res = await fetch('/api/overview/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, weekNum, teamId: selectedTeamId, onlyFilled, includeAuthor })
+        body: JSON.stringify({ year, weekNum, teamId: selectedTeamId })
       });
       const d = await res.json();
       if (!res.ok) { alert(d.error || '내보내기 실패'); return; }
@@ -104,7 +108,7 @@ export default function OverviewPage() {
       const res = await fetch('/api/overview/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, weekNum, teamId: selectedTeamId, onlyFilled, includeAuthor })
+        body: JSON.stringify({ year, weekNum, teamId: selectedTeamId })
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -139,6 +143,8 @@ export default function OverviewPage() {
 
     teams.forEach(team => {
       if (selectedTeamId != null && team.id !== selectedTeamId) return;
+      const onlyFilled = !team.includeEmpty;
+      const includeAuthor = team.includeAuthor;
       if (onlyFilled && !team.hasContent) return;
       team.parts.forEach(part => {
         part.majors.forEach(major => {
@@ -218,7 +224,7 @@ export default function OverviewPage() {
   };
 
   // ── 렌더 ──────────────────────────────────────────────
-  const renderBlocks = (blocks: ContentBlock[]) => {
+  const renderBlocks = (blocks: ContentBlock[], showAuthor: boolean) => {
     if (blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>내용 없음</span>;
     let seq = -1;
     return blocks.map(b => {
@@ -229,7 +235,7 @@ export default function OverviewPage() {
         <div key={b.id} style={{ marginBottom: '0.35rem' }}>
           <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
             {marked(s)} {b.subText}
-            {includeAuthor && b.authorText && (
+            {showAuthor && b.authorText && (
               <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{b.authorText}]</span>
             )}
           </div>
@@ -247,7 +253,7 @@ export default function OverviewPage() {
   const selectedTeam = teams.find(t => t.id === selectedTeamId) ?? null;
   const visibleTeams = teams
     .filter(t => selectedTeamId == null || t.id === selectedTeamId)
-    .filter(t => (onlyFilled ? t.hasContent : true));
+    .filter(t => !t.includeEmpty ? t.hasContent : true);
 
   return (
     <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -280,16 +286,8 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* 옵션 + 내보내기 (우측 정렬) */}
+      {/* 내보내기 — 표시 옵션은 각 팀의 취합본 설정(내용없음 포함 / 작성자 포함)을 따른다 */}
       <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        <label style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
-          <input type="checkbox" checked={onlyFilled} onChange={() => setOnlyFilled(v => !v)} style={{ cursor: 'pointer', accentColor: 'var(--primary)' }} />
-          작성된 항목만 보기
-        </label>
-        <label style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
-          <input type="checkbox" checked={includeAuthor} onChange={() => setIncludeAuthor(v => !v)} style={{ cursor: 'pointer', accentColor: 'var(--primary)' }} />
-          작성자 포함
-        </label>
         <button onClick={handleCopy} className="btn btn-primary" style={{ padding: '0.4rem 1.3rem' }}>
           {selectedTeam ? `${selectedTeam.name} 복사` : '전체 복사'}
         </button>
@@ -414,8 +412,10 @@ export default function OverviewPage() {
             <tbody>
               {visibleTeams.map(team => {
                 const rows: React.ReactNode[] = [];
+                const onlyFilled = !team.includeEmpty;
+                const keepCat = (c: OvCategory) => !onlyFilled || c.current.length > 0 || c.next.length > 0;
                 const teamCatCount = team.parts.reduce(
-                  (n, p) => n + p.majors.reduce((m, mj) => m + mj.categories.filter(c => !onlyFilled || c.current.length > 0 || c.next.length > 0).length, 0),
+                  (n, p) => n + p.majors.reduce((m, mj) => m + mj.categories.filter(keepCat).length, 0),
                   0
                 );
                 if (teamCatCount === 0) return null;
@@ -424,14 +424,14 @@ export default function OverviewPage() {
                 // 파트가 하나뿐인 팀은 파트가 사실상 팀 자체를 가리킨다.
                 // 이런 팀은 파트 칸을 따로 두지 않고 팀 → 대분류 → 중분류 3단으로 보여준다.
                 const shownParts = team.parts.filter(
-                  p => p.majors.some(mj => mj.categories.some(c => !onlyFilled || c.current.length > 0 || c.next.length > 0))
+                  p => p.majors.some(mj => mj.categories.some(keepCat))
                 );
                 const singlePart = shownParts.length === 1;
                 const soloPartName = singlePart ? shownParts[0].name : '';
                 // 파트명이 팀명이나 대분류명과 겹치면 굳이 다시 적지 않는다
                 const soloMajorNames = singlePart
                   ? shownParts[0].majors
-                      .filter(mj => mj.categories.some(c => !onlyFilled || c.current.length > 0 || c.next.length > 0))
+                      .filter(mj => mj.categories.some(keepCat))
                       .map(mj => mj.name)
                   : [];
                 const showSoloPartLabel =
@@ -444,7 +444,7 @@ export default function OverviewPage() {
 
                 team.parts.forEach(part => {
                   const partCatCount = part.majors.reduce(
-                    (m, mj) => m + mj.categories.filter(c => !onlyFilled || c.current.length > 0 || c.next.length > 0).length,
+                    (m, mj) => m + mj.categories.filter(keepCat).length,
                     0
                   );
                   if (partCatCount === 0) return;
@@ -453,12 +453,12 @@ export default function OverviewPage() {
                   // 문서에 분류2가 없던 행은 대분류를 파트명으로 채워둔 상태다.
                   // 같은 값이 두 칸에 반복되지 않도록 파트/분류 셀을 하나로 합친다.
                   const shownMajors = part.majors.filter(
-                    m => m.categories.filter(c => !onlyFilled || c.current.length > 0 || c.next.length > 0).length > 0
+                    m => m.categories.filter(keepCat).length > 0
                   );
                   const mergePartMajor = shownMajors.length === 1 && shownMajors[0].name === part.name;
 
                   part.majors.forEach(major => {
-                    const cats = major.categories.filter(c => !onlyFilled || c.current.length > 0 || c.next.length > 0);
+                    const cats = major.categories.filter(keepCat);
                     if (cats.length === 0) return;
 
                     cats.forEach((cat, ci) => {
@@ -510,8 +510,8 @@ export default function OverviewPage() {
                             </td>
                           )}
                           <td style={{ fontSize: '0.85rem' }}>{circled(ci)} {cat.middle}</td>
-                          <td style={{ verticalAlign: 'top', padding: '0.6rem' }}>{renderBlocks(cat.current)}</td>
-                          <td style={{ verticalAlign: 'top', padding: '0.6rem' }}>{renderBlocks(cat.next)}</td>
+                          <td style={{ verticalAlign: 'top', padding: '0.6rem' }}>{renderBlocks(cat.current, team.includeAuthor)}</td>
+                          <td style={{ verticalAlign: 'top', padding: '0.6rem' }}>{renderBlocks(cat.next, team.includeAuthor)}</td>
                         </tr>
                       );
                       firstOfTeam = false;

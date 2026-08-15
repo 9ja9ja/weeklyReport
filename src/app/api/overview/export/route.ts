@@ -44,8 +44,6 @@ export async function POST(request: Request) {
     const year = parseInt(body.year, 10);
     const weekNum = parseInt(body.weekNum, 10);
     const teamId = body.teamId ? parseInt(body.teamId, 10) : null;
-    const onlyFilled = body.onlyFilled !== false;
-    const includeAuthor = body.includeAuthor !== false;
 
     if (!year || !weekNum) return NextResponse.json({ error: 'year, weekNum required' }, { status: 400 });
     if (!(await requireOverviewAccess(me))) {
@@ -86,6 +84,7 @@ export async function POST(request: Request) {
     const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
     const summaryMap = new Map(summaries.map(s => [s.teamId, safeState(s.contents)]));
+    const summaryPrefs = new Map(summaries.map(s => [s.teamId, { includeEmpty: s.includeEmpty, includeAuthor: s.includeAuthor }]));
     const lockMap = new Map(locks.map(l => [l.teamId, l]));
     const fallback = new Map<number, EditorState>();
 
@@ -126,12 +125,15 @@ export async function POST(request: Request) {
       const hasContent = parts.some(p =>
         p.majors.some(m => m.categories.some(c => c.current.length > 0 || c.next.length > 0))
       );
+      const prefs = summaryPrefs.get(team.id);
       return {
         id: team.id,
         name: team.name,
         division: team.division,
         isLocked: lockMap.get(team.id)?.isLocked ?? false,
         hasContent,
+        includeEmpty: prefs?.includeEmpty ?? true,
+        includeAuthor: prefs?.includeAuthor ?? true,
         parts
       };
     });
@@ -144,14 +146,14 @@ export async function POST(request: Request) {
     const range = getWeekRange(year, weekNum);
     const nw = getNextWeek(year, weekNum);
     const nextRange = getWeekRange(nw.year, nw.weekNum);
+    // 팀별 설정(DocTeam.includeEmpty / includeAuthor)이 채워져 있으므로
+    // 전역 폴백은 기본값(onlyFilled=true, includeAuthor=true)을 둔다
     const html = buildOverviewHtml({
       teams: docTeams,
       year,
       weekNum,
       range,
-      nextRange,
-      onlyFilled,
-      includeAuthor
+      nextRange
     });
 
     const teamSuffix = teamId ? `_${teams[0]?.name ?? ''}` : '';

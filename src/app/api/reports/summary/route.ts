@@ -64,6 +64,21 @@ export async function GET(request: Request) {
       if (doc?.contents) contents = doc.contents;
     }
 
+    // 이번 주차에 설정이 없으면 같은 팀의 직전 주차 설정을 물려받는다
+    let includeEmpty = summary?.includeEmpty ?? true;
+    let includeAuthor = summary?.includeAuthor ?? true;
+    if (!summary) {
+      const prev = await prisma.summaryData.findFirst({
+        where: { teamId, OR: [{ year: { lt: year } }, { year, weekNum: { lt: weekNum } }] },
+        orderBy: [{ year: 'desc' }, { weekNum: 'desc' }],
+        select: { includeEmpty: true, includeAuthor: true }
+      });
+      if (prev) {
+        includeEmpty = prev.includeEmpty;
+        includeAuthor = prev.includeAuthor;
+      }
+    }
+
     return NextResponse.json({
       contents,
       collab,
@@ -71,9 +86,44 @@ export async function GET(request: Request) {
       isClosed: lock?.isClosed ?? false,
       stage: summaryStage(lock),
       lockedBy: lock?.lockedBy ?? null,
-      lockedAt: lock?.lockedAt ?? null
+      lockedAt: lock?.lockedAt ?? null,
+      includeEmpty,
+      includeAuthor
     });
   } catch (error) {
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH — 표시 설정(includeEmpty, includeAuthor)만 저장한다.
+ * 전체 취합본에서 팀별로 반영되는 값이라, 체크박스 토글 시 즉시 호출된다.
+ */
+export async function PATCH(request: Request) {
+  try {
+    const me = await currentUserId();
+    if (!me) return unauthorized();
+    const { year, weekNum, teamId, includeEmpty, includeAuthor } = await request.json();
+    if (!teamId || !year || !weekNum) return NextResponse.json({ error: 'teamId, year, weekNum required' }, { status: 400 });
+    if (!await requireTeamMaster(me, teamId)) return NextResponse.json({ error: '권한이 필요합니다.' }, { status: 403 });
+
+    const update: Record<string, boolean> = {};
+    if (typeof includeEmpty === 'boolean') update.includeEmpty = includeEmpty;
+    if (typeof includeAuthor === 'boolean') update.includeAuthor = includeAuthor;
+
+    // 레코드가 이미 있을 때만 설정을 저장한다. upsert 로 빈 contents('{}')를
+    // 만들면 overview 의 개별보고 폴백(summaryMap.has 검사)이 차단된다.
+    // 레코드가 아직 없으면 설정은 다음 내용 저장(POST)과 함께 들어가고,
+    // 화면은 클라이언트 state 로 즉시 반영되며 GET 의 전주 폴백이 기본값을 채운다.
+    const result = await prisma.summaryData.updateMany({
+      where: { teamId, year, weekNum },
+      data: update
+    });
+    // 레코드가 없었을 때(result.count === 0)도 200 — 클라이언트 state 는 이미 반영됐다.
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('summary prefs patch failed:', error);
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

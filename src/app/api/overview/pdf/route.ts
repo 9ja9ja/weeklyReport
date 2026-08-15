@@ -38,8 +38,6 @@ export async function POST(request: Request) {
     const year = parseInt(body.year, 10);
     const weekNum = parseInt(body.weekNum, 10);
     const teamId = body.teamId ? parseInt(body.teamId, 10) : null;
-    const onlyFilled = body.onlyFilled !== false;
-    const includeAuthor = body.includeAuthor !== false;
 
     if (!year || !weekNum) return NextResponse.json({ error: 'year, weekNum required' }, { status: 400 });
     if (!(await requireOverviewAccess(me))) {
@@ -73,6 +71,7 @@ export async function POST(request: Request) {
     const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
     const summaryMap = new Map(summaries.map(s => [s.teamId, safeState(s.contents)]));
+    const summaryPrefs = new Map(summaries.map(s => [s.teamId, { includeEmpty: s.includeEmpty, includeAuthor: s.includeAuthor }]));
     const lockMap = new Map(locks.map(l => [l.teamId, l]));
     const fallback = new Map<number, EditorState>();
     reports.forEach(rep => {
@@ -89,6 +88,7 @@ export async function POST(request: Request) {
 
     const docTeams: DocTeam[] = teams.map(team => {
       const data = summaryMap.get(team.id) ?? fallback.get(team.id) ?? {};
+      const prefs = summaryPrefs.get(team.id);
       const parts = team.parts.map(p => ({
         id: p.id,
         name: p.name,
@@ -104,7 +104,13 @@ export async function POST(request: Request) {
         }))
       }));
       const hasContent = parts.some(p => p.majors.some(m => m.categories.some(c => c.current.length > 0 || c.next.length > 0)));
-      return { id: team.id, name: team.name, division: team.division, isLocked: lockMap.get(team.id)?.isLocked ?? false, hasContent, parts };
+      return {
+        id: team.id, name: team.name, division: team.division,
+        isLocked: lockMap.get(team.id)?.isLocked ?? false, hasContent,
+        includeEmpty: prefs?.includeEmpty ?? true,
+        includeAuthor: prefs?.includeAuthor ?? true,
+        parts
+      };
     });
 
     if (!docTeams.some(t => t.hasContent)) {
@@ -114,7 +120,7 @@ export async function POST(request: Request) {
     const range = getWeekRange(year, weekNum);
     const nw = getNextWeek(year, weekNum);
     const nextRange = getWeekRange(nw.year, nw.weekNum);
-    const html = buildOverviewHtml({ teams: docTeams, year, weekNum, range, nextRange, onlyFilled, includeAuthor });
+    const html = buildOverviewHtml({ teams: docTeams, year, weekNum, range, nextRange });
 
     const teamSuffix = teamId ? `_${teams[0]?.name ?? ''}` : '';
     const fileName = `상세본_서비스본부_주간_보고_${year}년_${weekNum}주차${teamSuffix}.pdf`;

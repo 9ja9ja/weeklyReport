@@ -24,6 +24,10 @@ export interface DocTeam {
   division: string;
   isLocked: boolean;
   hasContent: boolean;
+  /** 빈 항목 포함 여부 — 팀별 취합본에서 설정한 값 (기본 true) */
+  includeEmpty?: boolean;
+  /** 작성자 표시 여부 — 팀별 취합본에서 설정한 값 (기본 true) */
+  includeAuthor?: boolean;
   parts: DocPart[];
 }
 
@@ -170,20 +174,34 @@ export function buildOverviewHtml(opts: {
   range: { monday: Date; friday: Date };
   /** 차주 월~금 */
   nextRange: { monday: Date; friday: Date };
+  /**
+   * 전역 빈 항목 필터 — 팀에 개별 설정(team.includeEmpty)이 있으면 그쪽이 우선.
+   * 둘 다 없으면 true(빈 항목 숨김).
+   */
   onlyFilled?: boolean;
+  /**
+   * 전역 작성자 표시 — 팀에 개별 설정(team.includeAuthor)이 있으면 그쪽이 우선.
+   * 둘 다 없으면 true.
+   */
   includeAuthor?: boolean;
 }): string {
   const { teams, year, weekNum, range, nextRange } = opts;
-  const onlyFilled = opts.onlyFilled ?? true;
-  const includeAuthor = opts.includeAuthor ?? true;
+  const globalOnlyFilled = opts.onlyFilled ?? true;
+  const globalIncludeAuthor = opts.includeAuthor ?? true;
   const nextWeek = getNextWeek(year, weekNum).weekNum;
 
-  const keepCat = (c: DocCategory) => !onlyFilled || c.current.length > 0 || c.next.length > 0;
+  /** 팀별 설정 해석 — includeEmpty/includeAuthor 가 설정돼 있으면 팀별 값, 아니면 전역값 */
+  const teamOnlyFilled = (t: DocTeam) =>
+    t.includeEmpty != null ? !t.includeEmpty : globalOnlyFilled;
+  const teamIncludeAuthor = (t: DocTeam) =>
+    t.includeAuthor != null ? t.includeAuthor : globalIncludeAuthor;
 
   // 구분(division) 단위로 묶는다 — 원본에서 구분은 여러 팀에 걸쳐 세로 병합된다
-  const divisions: { name: string; parts: { part: DocPart; majors: DocMajor[] }[] }[] = [];
+  const divisions: { name: string; parts: { part: DocPart; majors: DocMajor[]; includeAuthor: boolean }[] }[] = [];
   for (const team of teams) {
+    const onlyFilled = teamOnlyFilled(team);
     if (onlyFilled && !team.hasContent) continue;
+    const keepCat = (c: DocCategory) => !onlyFilled || c.current.length > 0 || c.next.length > 0;
     for (const part of team.parts) {
       const majors = part.majors
         .map(mj => ({ ...mj, categories: mj.categories.filter(keepCat) }))
@@ -192,7 +210,7 @@ export function buildOverviewHtml(opts: {
 
       let div = divisions.find(d => d.name === team.division);
       if (!div) { div = { name: team.division, parts: [] }; divisions.push(div); }
-      div.parts.push({ part, majors });
+      div.parts.push({ part, majors, includeAuthor: teamIncludeAuthor(team) });
     }
   }
 
@@ -201,7 +219,7 @@ export function buildOverviewHtml(opts: {
     const divRowCount = div.parts.reduce((n, p) => n + p.majors.length, 0);
     let firstOfDiv = true;
 
-    for (const { part, majors } of div.parts) {
+    for (const { part, majors, includeAuthor } of div.parts) {
       const authors = partAuthors(part);
       // 분류1 = 분류2 이면 원본처럼 한 칸으로 합친다
       const merge = majors.length === 1 && majors[0].name === part.name;

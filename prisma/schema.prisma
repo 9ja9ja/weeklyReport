@@ -169,6 +169,10 @@ model SummaryData {
   teamId    Int
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   contents  String
+  /// 복사/내보내기 시 빈 항목(금주·차주 모두 내용없음)을 포함할지
+  includeEmpty  Boolean @default(true)
+  /// 복사/내보내기 시 작성자명([홍길동])을 표시할지
+  includeAuthor Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
