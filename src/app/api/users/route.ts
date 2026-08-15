@@ -59,6 +59,15 @@ export async function GET(request: Request) {
       const status = await loadCollabStatus(team ? [team] : [], [{ year, weekNum }]);
       const collab = team ? status.isCollab(team.id, year, weekNum) : false;
 
+      // "이번 주 보고 없음" 선언 — 공동 편집 여부와 무관하게 동일한 규칙으로 조회한다
+      const excuses = team
+        ? await prisma.writingExcuse.findMany({
+            where: { teamId: team.id, year, weekNum },
+            select: { userId: true }
+          })
+        : [];
+      const excuseSet = new Set(excuses.map(e => e.userId));
+
       return NextResponse.json(users.map(u => {
         const report = (u as typeof u & { reports?: { updatedAt: Date }[] }).reports?.[0];
         const editedAt = team ? status.editedAt(team.id, u.id, year, weekNum) : null;
@@ -66,6 +75,7 @@ export async function GET(request: Request) {
           id: u.id, name: u.name, role: u.role, teamId: u.teamId, position: u.position,
           isPrimary: teamId ? u.userTeams.some(t => t.teamId === teamId && t.isPrimary) : true,
           hasReport: collab ? !!editedAt : !!report,
+          hasExcuse: excuseSet.has(u.id),
           lastUpdated: (collab ? editedAt : report?.updatedAt) || null
         };
       }));

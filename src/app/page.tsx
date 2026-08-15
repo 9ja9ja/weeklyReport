@@ -16,7 +16,9 @@ interface TeamUser {
   position?: string;
   isPrimary?: boolean;
   hasReport?: boolean;
+  hasExcuse?: boolean;
   prevHasReport?: boolean;
+  prevHasExcuse?: boolean;
   lastUpdated?: string | null;
 }
 
@@ -188,7 +190,8 @@ export default function Home() {
                 {teams.map((t, ti) => {
                   const on = !q && t.id === selectedTeamId;
                   const hit = q ? t.users.filter(u => u.name.includes(q)).length : 0;
-                  const done = t.users.filter(u => u.hasReport).length;
+                  // 작성없음(excuse) 선언자도 더 기다릴 필요가 없다는 뜻이라 완료로 센다
+                  const done = t.users.filter(u => u.hasReport || u.hasExcuse).length;
                   return (
                     <button
                       key={t.id}
@@ -247,7 +250,7 @@ export default function Home() {
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{team.users.length}명</span>
                       {!isExec && (
                         <span style={{ marginLeft: 'auto', fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)' }}>
-                          {team.users.filter(u => u.hasReport).length}/{team.users.length} 작성
+                          {team.users.filter(u => u.hasReport || u.hasExcuse).length}/{team.users.length} 작성
                         </span>
                       )}
                     </div>
@@ -285,12 +288,16 @@ export default function Home() {
                           <div style={{ width: '80px', textAlign: 'center', flexShrink: 0 }}>
                             {user.prevHasReport
                               ? <span style={{ color: '#22c55e', fontWeight: 600, fontSize: '0.8rem', opacity: 0.65 }}>완료</span>
-                              : <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.8rem' }}>미작성</span>}
+                              : user.prevHasExcuse
+                                ? <span style={{ color: '#9ca3af', fontWeight: 600, fontSize: '0.8rem', opacity: 0.65 }}>작성없음</span>
+                                : <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.8rem' }}>미작성</span>}
                           </div>
                           <div style={{ width: '80px', textAlign: 'center', flexShrink: 0 }}>
                             {user.hasReport
                               ? <span style={{ color: '#22c55e', fontWeight: 700, fontSize: '0.82rem' }}>완료</span>
-                              : <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.82rem' }}>미작성</span>}
+                              : user.hasExcuse
+                                ? <span style={{ color: '#9ca3af', fontWeight: 600, fontSize: '0.82rem' }}>작성없음</span>
+                                : <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.82rem' }}>미작성</span>}
                           </div>
                           <div style={{ width: '120px', textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-muted)', flexShrink: 0 }}>
                             {formatDateTime(user.lastUpdated ?? null)}

@@ -56,6 +56,16 @@ function WriteContent() {
   /** 팀별 주차 단계 — 작성중 / 작성마감 / 취합완료 */
   const [stageByTeam, setStageByTeam] = useState<Record<number, SummaryStage>>({});
 
+  // "이번 주 작성 없음" — 팀별로 따로 관리한다(겸직 탭마다 상태가 다를 수 있다)
+  /** 팀별 "작성 없음" 선언 여부 */
+  const [excuseByTeam, setExcuseByTeam] = useState<Record<number, boolean>>({});
+  /** 팀별 "이미 작성한 내용이 있는가" (Report 또는 공동 편집 실제 편집 이력) */
+  const [hasReportByTeam, setHasReportByTeam] = useState<Record<number, boolean>>({});
+  /** 위 두 값을 그 팀에 대해 한 번이라도 조회했는가 — 조회 전에는 버튼을 보여주지 않는다 */
+  const [excuseReadyByTeam, setExcuseReadyByTeam] = useState<Record<number, boolean>>({});
+  /** 선언/취소 요청 처리 중 — 중복 클릭 방지 */
+  const [excuseActing, setExcuseActing] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -65,6 +75,13 @@ function WriteContent() {
   const stageOfActive = activeTeamId ? stageByTeam[activeTeamId] ?? 'open' : 'open';
   /** 작성마감·취합완료 모두 팀원 입력은 막힌다. 문구만 달라진다. */
   const lockedByApi = !membersCanWriteAt(stageOfActive);
+
+  /** 지금 보고 있는 탭이 "작성 없음" 선언된 상태인가 */
+  const excuseActive = activeTeamId != null && !!excuseByTeam[activeTeamId];
+  const excuseReady = activeTeamId != null && !!excuseReadyByTeam[activeTeamId];
+  const hasContentForActiveTeam = activeTeamId != null && !!hasReportByTeam[activeTeamId];
+  /** "이번 주 작성 없음" 버튼을 보여줄 조건 — 작성중 단계 + 조회 완료 + 미선언 + 기존 작성 내용 없음 */
+  const canDeclareExcuse = excuseReady && !excuseActive && !hasContentForActiveTeam && stageOfActive === 'open';
 
   /** categoryId → teamId 역매핑 (저장 시 잠긴 팀 항목을 걸러내려고) */
   const teamOfCategory = (() => {
@@ -305,8 +322,24 @@ function WriteContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year, weekNum, items })
       });
-      if (res.ok) alert('저장되었습니다.');
-      else {
+      if (res.ok) {
+        alert('저장되었습니다.');
+        // 저장 직후 재조회 없이도 "이번 주 작성 없음" 버튼이 곧바로 숨겨지도록,
+        // 방금 실제로 내용을 저장한 팀들의 hasReport 를 로컬 상태에 바로 반영한다.
+        // (활성 탭만이 아니라 겸직으로 함께 저장된 다른 팀도 포함)
+        const savedTeamIds = new Set<number>();
+        items.forEach(i => {
+          const tid = teamOfCategory.get(i.categoryId);
+          if (tid != null) savedTeamIds.add(tid);
+        });
+        if (savedTeamIds.size > 0) {
+          setHasReportByTeam(prev => {
+            const next = { ...prev };
+            savedTeamIds.forEach(tid => { next[tid] = true; });
+            return next;
+          });
+        }
+      } else {
         const err = await res.json();
         alert(err.error || '저장 실패');
       }
@@ -354,6 +387,82 @@ function WriteContent() {
     })();
     return () => { alive = false; };
   }, [activeTeamId, year, weekNum, collabByTeam]);
+
+  // "이번 주 작성 없음" 상태 조회 — 페이지 진입 시 + 팀 탭 전환 시 + 연도/주차 변경 시.
+  //
+  // hasReport 는 /api/reports/status(마이 소속팀 고정) 대신 팀별로 정확히 조회되는
+  // /api/users?withStatus 를 쓴다 — 겸직 탭(주 소속이 아닌 팀)에서도 그 팀 기준으로
+  // 공동 편집 여부에 맞게(Report 또는 DocActivity) 판정해준다.
+  useEffect(() => {
+    if (!activeTeamId || !userId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [excRes, statusRes] = await Promise.all([
+          fetch(`/api/reports/excuse?teamId=${activeTeamId}&year=${year}&weekNum=${weekNum}`),
+          fetch(`/api/users?teamId=${activeTeamId}&withStatus=true&year=${year}&weekNum=${weekNum}`)
+        ]);
+        const excData = excRes.ok ? await excRes.json().catch(() => null) : null;
+        const statusData = statusRes.ok ? await statusRes.json().catch(() => null) : null;
+        if (!alive) return;
+        const me = Array.isArray(statusData) ? statusData.find((u: { id: number }) => u.id === userId) : null;
+        setExcuseByTeam(prev => ({ ...prev, [activeTeamId]: !!excData?.hasExcuse }));
+        setHasReportByTeam(prev => ({ ...prev, [activeTeamId]: !!me?.hasReport }));
+        setExcuseReadyByTeam(prev => ({ ...prev, [activeTeamId]: true }));
+      } catch {
+        // 조회 실패 시에는 버튼을 보여주지 않는다(ready=false 로 남겨둔다) — 확인 못 한 채
+        // "작성 내용 없음"으로 잘못 단정해 버튼을 노출하지 않기 위해서다.
+      }
+    })();
+    return () => { alive = false; };
+  }, [activeTeamId, year, weekNum, userId]);
+
+  /** "이번 주 작성 없음" 선언 */
+  const handleDeclareExcuse = async () => {
+    if (!activeTeamId || excuseActing) return;
+    if (!confirm('이번 주는 작성할 내용이 없는 것으로 처리합니다.\n작성 화면 대신 "작성 없음" 안내가 표시됩니다. 계속하시겠습니까?')) return;
+    setExcuseActing(true);
+    try {
+      const res = await fetch('/api/reports/excuse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: activeTeamId, year, weekNum })
+      });
+      if (res.ok) {
+        setExcuseByTeam(prev => ({ ...prev, [activeTeamId]: true }));
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || '처리에 실패했습니다.');
+      }
+    } catch {
+      alert('오류가 발생했습니다.');
+    } finally {
+      setExcuseActing(false);
+    }
+  };
+
+  /** "취소하고 작성하기" — 선언 취소 후 정상 작성 모드로 복귀 */
+  const handleCancelExcuse = async () => {
+    if (!activeTeamId || excuseActing) return;
+    setExcuseActing(true);
+    try {
+      const res = await fetch('/api/reports/excuse', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: activeTeamId, year, weekNum })
+      });
+      if (res.ok) {
+        setExcuseByTeam(prev => ({ ...prev, [activeTeamId]: false }));
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || '취소에 실패했습니다.');
+      }
+    } catch {
+      alert('오류가 발생했습니다.');
+    } finally {
+      setExcuseActing(false);
+    }
+  };
 
   /** 지난주 참고본 — 그 주차가 공동 편집이었으면 팀 문서, 아니면 내 개인 보고 */
   const prevBlocksOf = (catId: number, side: 'current' | 'next'): ContentBlock[] =>
@@ -636,6 +745,25 @@ function WriteContent() {
         </div>
       )}
 
+      {/* "이번 주 작성 없음" 안내 — 경고가 아니라 확인용이라 위 잠금 배너와는 다른(차분한) 톤을 쓴다 */}
+      {excuseActive && (
+        <div style={{
+          background: 'var(--primary-alpha-subtle)', border: '1px solid var(--primary)',
+          borderRadius: '8px', padding: '1rem 1.5rem', marginBottom: '1rem',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.8rem'
+        }}>
+          <span style={{ color: 'var(--foreground)', fontWeight: 600 }}>
+            ▣ {teams.length > 1 ? `${teams.find(t => t.id === activeTeamId)?.name ?? ''} 팀 — ` : ''}
+            이번 주 작성 없음으로 처리되었습니다.
+          </span>
+          {stageOfActive === 'open' && (
+            <button onClick={handleCancelExcuse} disabled={excuseActing} className="btn" style={{ fontSize: '0.85rem' }}>
+              {excuseActing ? '처리중...' : '취소하고 작성하기'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* 실시간 여부를 판정하는 동안에는 편집을 막고 그 사실을 알린다.
           아무 표시 없이 편집기를 열어두면 저장 경로 없는 입력이 쌓인다. */}
       {rt.mode === 'loading' && (
@@ -684,6 +812,18 @@ function WriteContent() {
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
               className="input-field" style={{ width: '80px', marginLeft: '0.5rem', padding: '0.3rem' }} /></label>
           </div>
+          {canDeclareExcuse && (
+            <button
+              onClick={handleDeclareExcuse}
+              disabled={excuseActing}
+              style={{
+                marginTop: '0.7rem', background: 'none', border: 'none', padding: 0,
+                color: 'var(--text-muted)', fontSize: '0.82rem', textDecoration: 'underline', cursor: 'pointer'
+              }}
+            >
+              이번 주 작성 없음
+            </button>
+          )}
         </div>
         <div className="write-actions" style={{ display: 'flex', gap: '1rem' }}>
           {/* 공동 편집에서는 화면 상태를 통째로 되돌리면 남이 방금 쓴 것까지 지운다.
@@ -754,7 +894,16 @@ function WriteContent() {
 
       {loading ? <p>로딩중...</p> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-          {partGroups.map(part => (
+          {excuseActive ? (
+            <div className="glass-panel" style={{ padding: '3rem 2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <p style={{ fontSize: '0.95rem' }}>이번 주는 &quot;작성 없음&quot;으로 처리되어 있습니다.</p>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.4rem' }}>
+                {stageOfActive === 'open'
+                  ? '작성할 내용이 생기면 위의 [취소하고 작성하기] 버튼을 눌러주세요.'
+                  : '작성 기간이 마감되어 취소할 수 없습니다.'}
+              </p>
+            </div>
+          ) : partGroups.map(part => (
             <div key={part.id} className="glass-panel" style={{ padding: '2rem' }}>
               {showPartHeader && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem', paddingBottom: '0.6rem', borderBottom: '3px solid var(--primary)' }}>
