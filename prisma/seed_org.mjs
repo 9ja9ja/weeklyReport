@@ -38,25 +38,6 @@ const TEAMS = [
     ],
   },
   {
-    name: '디자인팀',
-    division: 'Pharos',
-    members: [
-      { name: '이세라', position: '매니저' },
-      { name: '유미진', position: '매니저' },
-    ],
-    parts: [
-      {
-        name: '디자인',
-        majors: [
-          {
-            name: SAME,
-            middles: ['Pharos / Stella', 'Anchor', '마케팅 디자인', '핑거 전사 디자인'],
-          },
-        ],
-      },
-    ],
-  },
-  {
     name: '파로스 개발팀',
     division: 'Pharos',
     members: [
@@ -252,6 +233,8 @@ const TEAMS = [
       { name: '박상희', position: '매니저' },
       { name: '박소정', position: '매니저' },
       { name: '최은우', position: '매니저' },
+      { name: '이세라', position: '매니저' },
+      { name: '유미진', position: '매니저' },
     ],
     parts: [
       {
@@ -267,6 +250,18 @@ const TEAMS = [
               'CMS출금등록 및 하이웍스 유료고객 현황',
               '세금신고서 작성 현황',
               '파로스 채널톡 검토',
+            ],
+          },
+          {
+            name: '디자인',
+            middles: [
+              'Pharos / Stella',
+              'Anchor',
+              '마케팅 디자인',
+              '핑거 전사 디자인',
+              'AT 관련 디자인',
+              'Compas',
+              '디자인',
             ],
           },
         ],
