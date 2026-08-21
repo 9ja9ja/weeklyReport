@@ -228,7 +228,7 @@ export default function OverviewPage() {
     if (blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>내용 없음</span>;
     let seq = -1;
     return blocks.map(b => {
-      if (isTableBlock(b)) return <TableBlockView key={b.id} block={b} />;
+      if (isTableBlock(b)) return <TableBlockView key={b.id} block={b} showAuthor={showAuthor} />;
       seq += 1;
       const s = seq;
       return (

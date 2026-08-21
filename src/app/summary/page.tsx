@@ -446,13 +446,13 @@ export default function SummaryPage() {
     if (!blocks || blocks.length === 0) return <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', paddingLeft: '1rem' }}>내용 없음</span>;
     let seq = -1;
     return blocks.map(b => {
-      if (isTableBlock(b)) return <TableBlockView key={b.id} block={b} />;
+      if (isTableBlock(b)) return <TableBlockView key={b.id} block={b} showAuthor={includeAuthor} />;
       seq += 1;
       return (
         <div key={b.id} style={{ marginBottom: '0.4rem' }}>
           <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>
             {seq < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[seq] : `(${seq + 1})`} {b.subText}
-            {b.authorText && <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{b.authorText}]</span>}
+            {includeAuthor && b.authorText && <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{b.authorText}]</span>}
           </div>
           {b.bullets.map(bul => <div key={bul.id} style={{ paddingLeft: '2rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>- {bul.text}</div>)}
         </div>

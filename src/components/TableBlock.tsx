@@ -609,13 +609,13 @@ export function TableBlockEditor({
 }
 
 /** 읽기 전용 표 (지난 주 작성본, 잠금 상태 취합본) */
-export function TableBlockView({ block }: { block: TableBlock }) {
+export function TableBlockView({ block, showAuthor = true }: { block: TableBlock; showAuthor?: boolean }) {
   return (
     <div style={{ marginBottom: '0.5rem' }}>
-      {(block.caption.trim() || block.authorText) && (
+      {(block.caption.trim() || (showAuthor && block.authorText)) && (
         <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.2rem' }}>
           {block.caption.trim()}
-          {block.authorText && (
+          {showAuthor && block.authorText && (
             <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>
               [{block.authorText}]
             </span>
