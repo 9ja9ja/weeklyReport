@@ -41,7 +41,6 @@ export default function SettingsPage() {
   const [categories, setCategories] = useState<CategoryInfo[]>([]);
 
   const [newTeamName, setNewTeamName] = useState('');
-  const [newTeamDivision, setNewTeamDivision] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [crossUserId, setCrossUserId] = useState('');
   const [newPartName, setNewPartName] = useState('');
@@ -118,8 +117,8 @@ export default function SettingsPage() {
   // ── 팀 관리 ──
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
-    const res = await post('/api/teams', { name: newTeamName.trim(), division: newTeamDivision.trim() });
-    if (res.ok) { setNewTeamName(''); setNewTeamDivision(''); fetchTeams(); } else alert((await res.json()).error);
+    const res = await post('/api/teams', { name: newTeamName.trim() });
+    if (res.ok) { setNewTeamName(''); fetchTeams(); } else alert((await res.json()).error);
   };
   /**
    * 팀별 실시간 공동 편집 켜기/끄기.
@@ -336,7 +335,7 @@ export default function SettingsPage() {
           <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>관리 대상 팀:</span>
           <select value={selectedTeamId || ''} onChange={e => setSelectedTeamId(parseInt(e.target.value))}
             className="input-field" style={{ padding: '0.4rem 0.8rem', fontSize: '0.95rem', fontWeight: 600, minWidth: '200px' }}>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.division ? `[${t.division}] ` : ''}{t.name} ({t._count?.users ?? 0}명)</option>)}
+            {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t._count?.users ?? 0}명)</option>)}
           </select>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>아래 관리 항목은 선택된 팀 기준입니다.</span>
         </div>
@@ -348,9 +347,6 @@ export default function SettingsPage() {
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem' }}>팀 관리</h3>
           {teams.map(t => (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.5rem 0.8rem', borderBottom: '1px solid var(--border)' }}>
-              {t.division && (
-                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--surface-dim)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.1rem 0.4rem', flexShrink: 0 }}>{t.division}</span>
-              )}
               <span style={{ flex: 1, fontWeight: 700, color: selectedTeamId === t.id ? 'var(--primary)' : 'var(--foreground)' }}>
                 {t.name}
                 <span style={{ fontWeight: 400, fontSize: '0.85rem', color: 'var(--text-muted)' }}> ({t._count?.users ?? 0}명 · 파트 {t._count?.parts ?? 0})</span>
@@ -384,7 +380,6 @@ export default function SettingsPage() {
             </div>
           ))}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-            <input type="text" value={newTeamDivision} onChange={e => setNewTeamDivision(e.target.value)} placeholder="구분 (예: Pharos)" className="input-field" style={{ width: '150px', padding: '0.4rem 0.6rem' }} />
             <input type="text" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addTeam(); }} placeholder="새 팀 이름" className="input-field" style={{ flex: 1, padding: '0.4rem 0.6rem' }} />
             <button onClick={addTeam} className="btn" style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem', background: 'var(--primary)', color: 'white' }}>팀 추가</button>
           </div>

@@ -15,6 +15,9 @@
  */
 import { PrismaClient } from '@prisma/client';
 
+console.error('LEGACY: 이 스크립트는 2026-08 조직개편 이전 팀명을 사용합니다. 실행하려면 이 블록을 제거하세요.');
+process.exit(1);
+
 const APPLY = process.argv.includes('--apply');
 const KEEP = ['기획팀', '디자인팀'];   // 운영 정본 — 내용 이관 제외
 const YEAR = 2026, WEEK = 30;

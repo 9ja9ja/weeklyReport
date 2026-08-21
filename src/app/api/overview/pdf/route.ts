@@ -77,7 +77,8 @@ export async function POST(request: Request) {
     reports.forEach(rep => {
       rep.items.forEach(item => {
         const tid = item.category.teamId;
-        if (summaryMap.has(tid)) return;
+        const sd = summaryMap.get(tid);
+        if (sd && Object.keys(sd).length > 0) return;
         if (!fallback.has(tid)) fallback.set(tid, {});
         const st = fallback.get(tid)!;
         if (!st[item.categoryId]) st[item.categoryId] = { current: [], next: [] };
@@ -123,7 +124,7 @@ export async function POST(request: Request) {
     const html = buildOverviewHtml({ teams: docTeams, year, weekNum, range, nextRange });
 
     const teamSuffix = teamId ? `_${teams[0]?.name ?? ''}` : '';
-    const fileName = `상세본_서비스본부_주간_보고_${year}년_${weekNum}주차${teamSuffix}.pdf`;
+    const fileName = `상세본_비즈니스플랫폼본부_주간_보고_${year}년_${weekNum}주차${teamSuffix}.pdf`;
 
     // 구글 경유로 원본 서식 PDF 생성 (설정돼 있을 때)
     const { htmlToPdfViaGoogle, isDriveConfigured } = await import('@/lib/googleDrive');

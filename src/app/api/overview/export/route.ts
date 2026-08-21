@@ -91,7 +91,8 @@ export async function POST(request: Request) {
     reports.forEach(rep => {
       rep.items.forEach(item => {
         const tid = item.category.teamId;
-        if (summaryMap.has(tid)) return;
+        const sd = summaryMap.get(tid);
+        if (sd && Object.keys(sd).length > 0) return;
         if (!fallback.has(tid)) fallback.set(tid, {});
         const st = fallback.get(tid)!;
         if (!st[item.categoryId]) st[item.categoryId] = { current: [], next: [] };
@@ -157,7 +158,7 @@ export async function POST(request: Request) {
     });
 
     const teamSuffix = teamId ? `_${teams[0]?.name ?? ''}` : '';
-    const fileName = `상세본_서비스본부_주간_보고_${year}년_${weekNum}주차${teamSuffix}`;
+    const fileName = `상세본_비즈니스플랫폼본부_주간_보고_${year}년_${weekNum}주차${teamSuffix}`;
 
     // 월 폴더는 해당 주차 월요일 기준
     const result = await exportHtmlToDrive({

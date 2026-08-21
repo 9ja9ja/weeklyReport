@@ -54,7 +54,7 @@ interface UserContextType extends UserSession {
   isHydrating: boolean;
 }
 
-const STORAGE_KEY = 'wr_user_session';
+const STORAGE_KEY = 'wr_user_session_v2';
 const defaultSession: UserSession = {
   userId: null,
   userName: '',

@@ -221,7 +221,7 @@ export default function SchedulePage() {
                   type="text"
                   value={title}
                   onChange={e => setTitle(e.target.value)}
-                  placeholder="문서 제목 (예: 서비스본부 일정 보고)"
+                  placeholder="문서 제목 (예: 비즈니스플랫폼본부 일정 보고)"
                   className="brief-title-input"
                 />
               ) : (

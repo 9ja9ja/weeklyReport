@@ -319,7 +319,7 @@ export default function BriefPage() {
                     else { setTitle(e.target.value); setDirty(true); }
                   }}
                   {...(live ? yTitle.compositionProps : {})}
-                  placeholder="문서 제목 (예: 서비스본부 주간보고)"
+                  placeholder="문서 제목 (예: 비즈니스플랫폼본부 주간보고)"
                   className="brief-title-input"
                 />
               ) : (

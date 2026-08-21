@@ -1,7 +1,7 @@
 /**
- * 서비스본부 조직/분류 시드
+ * 비즈니스플랫폼본부 조직/분류 시드
  *
- * 출처: 상세본_서비스본부_주간_보고_2026년_30주차.docx
+ * 출처: 상세본_비즈니스플랫폼본부_주간_보고_2026년_30주차.docx
  * 계층 매핑: 구분 → Team.division / 분류1 → Part / 분류2 → MajorCategory / ⑴ → Category.middle
  *
  * 실행: DATABASE_URL="postgresql://..." node prisma/seed_org.mjs

@@ -9,6 +9,9 @@
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
 
+console.error('LEGACY: 이 스크립트는 2026-08 조직개편 이전 팀명을 사용합니다. 실행하려면 이 블록을 제거하세요.');
+process.exit(1);
+
 const prisma = new PrismaClient();
 const YEAR = 2026;
 const WEEK = 30;

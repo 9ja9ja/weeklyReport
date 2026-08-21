@@ -64,19 +64,21 @@ export async function GET(request: Request) {
       if (doc?.contents) contents = doc.contents;
     }
 
-    // 이번 주차에 설정이 없으면 같은 팀의 직전 주차 설정을 물려받는다
-    let includeEmpty = summary?.includeEmpty ?? true;
-    let includeAuthor = summary?.includeAuthor ?? true;
-    if (!summary) {
+    // null 이면(한 번도 설정한 적 없으면) 같은 팀의 직전 설정을 물려받는다
+    let includeEmpty = summary?.includeEmpty ?? null;
+    let includeAuthor = summary?.includeAuthor ?? null;
+    if (includeEmpty == null || includeAuthor == null) {
       const prev = await prisma.summaryData.findFirst({
-        where: { teamId, OR: [{ year: { lt: year } }, { year, weekNum: { lt: weekNum } }] },
+        where: {
+          teamId,
+          includeEmpty: { not: null },
+          OR: [{ year: { lt: year } }, { year, weekNum: { lt: weekNum } }]
+        },
         orderBy: [{ year: 'desc' }, { weekNum: 'desc' }],
         select: { includeEmpty: true, includeAuthor: true }
       });
-      if (prev) {
-        includeEmpty = prev.includeEmpty;
-        includeAuthor = prev.includeAuthor;
-      }
+      if (includeEmpty == null) includeEmpty = prev?.includeEmpty ?? true;
+      if (includeAuthor == null) includeAuthor = prev?.includeAuthor ?? true;
     }
 
     return NextResponse.json({
@@ -111,15 +113,11 @@ export async function PATCH(request: Request) {
     if (typeof includeEmpty === 'boolean') update.includeEmpty = includeEmpty;
     if (typeof includeAuthor === 'boolean') update.includeAuthor = includeAuthor;
 
-    // 레코드가 이미 있을 때만 설정을 저장한다. upsert 로 빈 contents('{}')를
-    // 만들면 overview 의 개별보고 폴백(summaryMap.has 검사)이 차단된다.
-    // 레코드가 아직 없으면 설정은 다음 내용 저장(POST)과 함께 들어가고,
-    // 화면은 클라이언트 state 로 즉시 반영되며 GET 의 전주 폴백이 기본값을 채운다.
-    const result = await prisma.summaryData.updateMany({
-      where: { teamId, year, weekNum },
-      data: update
+    await prisma.summaryData.upsert({
+      where: { teamId_year_weekNum: { teamId, year, weekNum } },
+      update,
+      create: { teamId, year, weekNum, contents: '{}', ...update }
     });
-    // 레코드가 없었을 때(result.count === 0)도 200 — 클라이언트 state 는 이미 반영됐다.
 
     return NextResponse.json({ success: true });
   } catch (error) {

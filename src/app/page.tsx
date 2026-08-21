@@ -210,9 +210,6 @@ export default function Home() {
                       }}
                     >
                       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                        {t.division && t.division !== t.name && (
-                          <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>{t.division}</span>
-                        )}
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                       </span>
                       <span style={{
@@ -241,11 +238,6 @@ export default function Home() {
                 return (
                   <div key={team.id} className="glass-panel" style={{ padding: '1.4rem 1.8rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.6rem', flexWrap: 'wrap' }}>
-                      {team.division && (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--surface-dim)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.1rem 0.4rem' }}>
-                          {team.division}
-                        </span>
-                      )}
                       <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)' }}>{team.name}</h3>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{team.users.length}명</span>
                       {!isExec && (

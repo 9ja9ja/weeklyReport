@@ -2,9 +2,9 @@
  * 전체 취합본 → 기존 주간보고 문서(docx)와 동일한 양식의 HTML 생성
  *
  * 원본 구조 (6열):
- *   구분 | 분류(2열: 분류1·분류2) | N주(MM.DD. ~ MM.DD.) | N+1주(...) | 담당
+ *   팀 | 분류(2열: 분류1·분류2) | N주(MM.DD. ~ MM.DD.) | N+1주(...) | 담당
  *
- * - 구분   = Team.division (Pharos / 개발 / 영업 / 마케팅 / 운영 / PMO), 구분 단위로 세로 병합
+ * - 팀     = Team.name, 팀 단위로 세로 병합
  * - 분류1  = Part, 분류2 = MajorCategory
  * - 중분류(⑴)는 별도 열이 아니라 금주/차주 셀 안에 ⑴ → ① → - 로 들어간다
  * - 담당   = 그 분류1에서 실제로 작성한 사람들 (파트 단위 세로 병합)
@@ -196,30 +196,29 @@ export function buildOverviewHtml(opts: {
   const teamIncludeAuthor = (t: DocTeam) =>
     t.includeAuthor != null ? t.includeAuthor : globalIncludeAuthor;
 
-  // 구분(division) 단위로 묶는다 — 원본에서 구분은 여러 팀에 걸쳐 세로 병합된다
-  const divisions: { name: string; parts: { part: DocPart; majors: DocMajor[]; includeAuthor: boolean }[] }[] = [];
+  // 팀 단위로 직접 순회한다 (division 그룹핑 폐지)
+  const teamEntries: { teamName: string; parts: { part: DocPart; majors: DocMajor[]; includeAuthor: boolean }[] }[] = [];
   for (const team of teams) {
     const onlyFilled = teamOnlyFilled(team);
     if (onlyFilled && !team.hasContent) continue;
     const keepCat = (c: DocCategory) => !onlyFilled || c.current.length > 0 || c.next.length > 0;
+    const entry: typeof teamEntries[0] = { teamName: team.name, parts: [] };
     for (const part of team.parts) {
       const majors = part.majors
         .map(mj => ({ ...mj, categories: mj.categories.filter(keepCat) }))
         .filter(mj => mj.categories.length > 0);
       if (majors.length === 0) continue;
-
-      let div = divisions.find(d => d.name === team.division);
-      if (!div) { div = { name: team.division, parts: [] }; divisions.push(div); }
-      div.parts.push({ part, majors, includeAuthor: teamIncludeAuthor(team) });
+      entry.parts.push({ part, majors, includeAuthor: teamIncludeAuthor(team) });
     }
+    if (entry.parts.length > 0) teamEntries.push(entry);
   }
 
   const rows: string[] = [];
-  for (const div of divisions) {
-    const divRowCount = div.parts.reduce((n, p) => n + p.majors.length, 0);
-    let firstOfDiv = true;
+  for (const te of teamEntries) {
+    const teamRowCount = te.parts.reduce((n, p) => n + p.majors.length, 0);
+    let firstOfTeam = true;
 
-    for (const { part, majors, includeAuthor } of div.parts) {
+    for (const { part, majors, includeAuthor } of te.parts) {
       const authors = partAuthors(part);
       // 분류1 = 분류2 이면 원본처럼 한 칸으로 합친다
       const merge = majors.length === 1 && majors[0].name === part.name;
@@ -228,8 +227,8 @@ export function buildOverviewHtml(opts: {
       for (const major of majors) {
         const cells: string[] = [];
 
-        if (firstOfDiv) {
-          cells.push(`<td style="${CELL_MID}${W(0)}font-weight:bold;" rowspan="${divRowCount}">${esc(div.name)}</td>`);
+        if (firstOfTeam) {
+          cells.push(`<td style="${CELL_MID}${W(0)}font-weight:bold;" rowspan="${teamRowCount}">${esc(te.teamName)}</td>`);
         }
         if (firstOfPart) {
           cells.push(
@@ -247,14 +246,14 @@ export function buildOverviewHtml(opts: {
         }
 
         rows.push(`<tr>${cells.join('')}</tr>`);
-        firstOfDiv = false;
+        firstOfTeam = false;
         firstOfPart = false;
       }
     }
   }
 
   const header =
-    `<td style="${HEAD}${W(0)}">구분</td>` +
+    `<td style="${HEAD}${W(0)}">팀</td>` +
     `<td style="${HEAD}${W(1, 2)}" colspan="2">분류</td>` +
     `<td style="${HEAD}${W(3)}">${weekNum}주(${dotDate(range.monday)} ~ ${dotDate(range.friday)})</td>` +
     `<td style="${HEAD}${W(4)}">${nextWeek}주(${dotDate(nextRange.monday)} ~ ${dotDate(nextRange.friday)})</td>` +
@@ -262,7 +261,7 @@ export function buildOverviewHtml(opts: {
 
   // 원본과 같은 A4 가로
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>상세본_서비스본부_주간_보고_${year}년_${weekNum}주차</title>
+<title>상세본_비즈니스플랫폼본부_주간_보고_${year}년_${weekNum}주차</title>
 <style>@page { size: 29.7cm 21cm; margin: 1cm 1.5cm; }</style>
 </head>
 <body style="font-family:'맑은 고딕','Malgun Gothic',sans-serif;">

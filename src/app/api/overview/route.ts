@@ -81,7 +81,8 @@ export async function GET(request: Request) {
     reports.forEach(rep => {
       rep.items.forEach(item => {
         const tid = item.category.teamId;
-        if (summaryMap.has(tid)) return; // 취합본이 있으면 건너뜀
+        const sd = summaryMap.get(tid);
+        if (sd && Object.keys(sd).length > 0) return; // 실제 내용이 있는 취합본이면 건너뜀
         if (!fallback.has(tid)) fallback.set(tid, {});
         const state = fallback.get(tid)!;
         if (!state[item.categoryId]) state[item.categoryId] = { current: [], next: [] };

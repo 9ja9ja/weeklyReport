@@ -119,7 +119,7 @@ export default function OverviewPage() {
       const suffix = selectedTeamId ? `_${teams.find(t => t.id === selectedTeamId)?.name ?? ''}` : '';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `상세본_서비스본부_주간_보고_${year}년_${weekNum}주차${suffix}.pdf`;
+      a.download = `상세본_비즈니스플랫폼본부_주간_보고_${year}년_${weekNum}주차${suffix}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -181,9 +181,9 @@ export default function OverviewPage() {
             nxtH += `<div>${circled(i)} ${c.middle}</div>${b.h}`;
           });
 
-          text += `${team.division}\t${part.name}\t${major.name}\t${curT.trim()}\t${nxtT.trim()}\n`;
+          text += `${team.name}\t${part.name}\t${major.name}\t${curT.trim()}\t${nxtT.trim()}\n`;
           rows.push(
-            `<tr><td style="${tdStyle}">${team.division}</td>` +
+            `<tr><td style="${tdStyle}">${team.name}</td>` +
             `<td style="${tdStyle}">${part.name}</td>` +
             `<td style="${tdStyle}">${major.name}</td>` +
             `<td style="${tdStyle}">${curH}</td>` +
@@ -196,7 +196,7 @@ export default function OverviewPage() {
     const html =
       `<table style="border-collapse:collapse;width:100%;border:0.5pt solid #7f7f7f;">` +
       `<tr>` +
-      ['구분', '분류1', '분류2', `${weekNum}주 금주`, `${getNextWeek(year, weekNum).weekNum}주 차주`]
+      ['팀', '분류1', '분류2', `${weekNum}주 금주`, `${getNextWeek(year, weekNum).weekNum}주 차주`]
         .map(h => `<td style="${tdStyle}background:#f2f2f2;font-weight:bold;text-align:center;">${h}</td>`)
         .join('') +
       `</tr>${rows.join('')}</table>`;
@@ -260,7 +260,7 @@ export default function OverviewPage() {
       {/* 헤더 */}
       <div className="glass-panel" style={{ padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>서비스본부 전체 취합본</h2>
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>비즈니스플랫폼본부 전체 취합본</h2>
           <p style={{ margin: '0.3rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
             {year}년 {weekNum}주차 ({formatDateShort(range.monday)} ~ {formatDateShort(range.friday)})
           </p>
@@ -337,7 +337,7 @@ export default function OverviewPage() {
                     borderRadius: '6px', padding: '0.45rem 0.6rem'
                   }}
                 >
-                  <div style={{ fontSize: '0.6rem', fontWeight: 700, opacity: 0.75 }}>서비스본부</div>
+                  <div style={{ fontSize: '0.6rem', fontWeight: 700, opacity: 0.75 }}>비즈니스플랫폼본부</div>
                   <div style={{ fontWeight: 700, fontSize: '0.86rem', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <span>전체</span>
                     <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.85 }}>{teams.length}팀</span>
@@ -365,7 +365,6 @@ export default function OverviewPage() {
                     boxShadow: on ? '0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent)' : 'none'
                   }}
                 >
-                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700 }}>{t.division}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.3rem' }}>
                     <span style={{ fontWeight: 700, fontSize: '0.84rem' }}>{t.name}</span>
                     <span style={{ color, fontWeight: 700, fontSize: '0.68rem', whiteSpace: 'nowrap' }}>
@@ -396,8 +395,7 @@ export default function OverviewPage() {
           <table className="summary-table" style={{ minWidth: '1100px', width: '100%', tableLayout: 'fixed' }}>
             <thead>
               <tr>
-                <th style={{ width: '6%' }}>구분</th>
-                <th style={{ width: '8%' }}>팀</th>
+                <th style={{ width: '14%' }}>팀</th>
                 <th style={{ width: '7%' }}>파트</th>
                 <th style={{ width: '8%' }}>분류</th>
                 <th style={{ width: '10%' }}>중분류</th>
@@ -435,8 +433,6 @@ export default function OverviewPage() {
                 // 파트·대분류가 하나뿐이고 이름이 팀명과 같으면(PMO 등) 팀 칸에 흡수
                 const teamAbsorbsMajor =
                   singlePart && soloMajorNames.length === 1 && soloMajorNames[0] === team.name;
-                // 구분(본부)명까지 팀명과 같으면 한 칸으로
-                const divisionEqTeam = team.division === team.name;
 
                 team.parts.forEach(part => {
                   const partCatCount = part.majors.reduce(
@@ -461,30 +457,17 @@ export default function OverviewPage() {
                       rows.push(
                         <tr key={`${team.id}-${part.id}-${major.id}-${cat.id}`}>
                           {firstOfTeam && (
-                            divisionEqTeam && teamAbsorbsMajor ? (
-                              // 구분=팀=파트=분류 (PMO 등) → 한 칸으로
-                              <td rowSpan={teamCatCount} colSpan={4} style={{ fontWeight: 700, textAlign: 'center', verticalAlign: 'middle', background: 'var(--surface-dim)', fontSize: '0.85rem' }}>
-                                {team.name}
-                                <div style={{ marginTop: '0.3rem', fontSize: '0.68rem', fontWeight: 600, color: team.isLocked ? '#16a34a' : '#d97706' }}>
-                                  {team.isLocked ? '취합완료' : team.isClosed ? '작성마감' : '작성중'}
+                            <td rowSpan={teamCatCount} colSpan={teamAbsorbsMajor ? 3 : 1} style={{ fontWeight: 700, textAlign: 'center', verticalAlign: 'middle', background: 'var(--surface-dim)', fontSize: '0.85rem' }}>
+                              {team.name}
+                              {showSoloPartLabel && (
+                                <div style={{ marginTop: '0.15rem', fontSize: '0.68rem', fontWeight: 500, color: 'var(--text-muted)' }}>
+                                  {soloPartName}
                                 </div>
-                              </td>
-                            ) : (
-                              <>
-                                <td rowSpan={teamCatCount} style={{ fontWeight: 700, textAlign: 'center', verticalAlign: 'middle', background: 'var(--surface-dim)', fontSize: '0.85rem' }}>{team.division}</td>
-                                <td rowSpan={teamCatCount} colSpan={teamAbsorbsMajor ? 3 : 1} style={{ fontWeight: 700, textAlign: 'center', verticalAlign: 'middle', fontSize: '0.85rem' }}>
-                                  {team.name}
-                                  {showSoloPartLabel && (
-                                    <div style={{ marginTop: '0.15rem', fontSize: '0.68rem', fontWeight: 500, color: 'var(--text-muted)' }}>
-                                      {soloPartName}
-                                    </div>
-                                  )}
-                                  <div style={{ marginTop: '0.3rem', fontSize: '0.68rem', fontWeight: 600, color: team.isLocked ? '#16a34a' : '#d97706' }}>
-                                    {team.isLocked ? '취합완료' : team.isClosed ? '작성마감' : '작성중'}
-                                  </div>
-                                </td>
-                              </>
-                            )
+                              )}
+                              <div style={{ marginTop: '0.3rem', fontSize: '0.68rem', fontWeight: 600, color: team.isLocked ? '#16a34a' : '#d97706' }}>
+                                {team.isLocked ? '취합완료' : team.isClosed ? '작성마감' : '작성중'}
+                              </div>
+                            </td>
                           )}
                           {/* 파트가 여러 개인 팀만 파트 칸을 그린다 */}
                           {!singlePart && firstOfPart && (

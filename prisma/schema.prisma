@@ -10,7 +10,7 @@ datasource db {
 model Team {
   id        Int      @id @default(autoincrement())
   name      String   @unique
-  division  String   @default("") // 문서 "구분": Pharos | 개발 | 영업 | 마케팅 | 운영 | PMO
+  division  String   @default("") // deprecated (임원 그룹 식별에만 사용)
   orderIdx  Int      @default(0)
   createdAt DateTime @default(now())
 
@@ -171,10 +171,10 @@ model SummaryData {
   teamId    Int
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   contents  String
-  /// 복사/내보내기 시 빈 항목(금주·차주 모두 내용없음)을 포함할지
-  includeEmpty  Boolean @default(true)
-  /// 복사/내보내기 시 작성자명([홍길동])을 표시할지
-  includeAuthor Boolean @default(true)
+  /// 복사/내보내기 시 빈 항목(금주·차주 모두 내용없음)을 포함할지 — null 이면 전주 설정을 이어받는다
+  includeEmpty  Boolean?
+  /// 복사/내보내기 시 작성자명([홍길동])을 표시할지 — null 이면 전주 설정을 이어받는다
+  includeAuthor Boolean?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
