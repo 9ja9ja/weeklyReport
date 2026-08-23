@@ -63,6 +63,16 @@ function tokenMatchesRoom(claims: RealtimeTokenPayload, key: RoomKey | null): bo
 }
 
 export class WeeklyRoom extends YServer<Env> {
+  /**
+   * WebSocket Hibernation 활성화.
+   *
+   * hibernate: false(기본값)면 idle WebSocket 이 열려 있는 동안에도 DO 벽시계 시간이
+   * 계속 흘러 무료 플랜 한도(13,000 GB-s/일)를 금세 소진한다.
+   * true 로 두면 메시지가 없는 동안 DO 가 잠들어 벽시계 시간이 0 이 되고,
+   * 메시지가 오면 자동으로 깨어나 처리한다.
+   */
+  static options = { hibernate: true };
+
   /** 저장 디바운스 — 짧게 둔다. DO 가 사라지면 되살릴 사본이 없다(스파이크 C1) */
   static callbackOptions = { debounceWait: 2000, debounceMaxWait: 6000 };
 
