@@ -78,6 +78,15 @@ async function issue(year: number, weekNum: number, allowSeed: boolean) {
   });
   const isLocked = brief?.isLocked === true;
 
+  // 잠긴 요약본은 편집이 불가능하므로 실시간 연결이 필요 없다.
+  // legacy 모드로 떨어뜨려 REST 조회만으로 보여주면 DO 자원을 쓰지 않는다.
+  if (isLocked) {
+    return NextResponse.json(
+      { error: '잠금된 요약본입니다.', locked: true },
+      { status: 409 }
+    );
+  }
+
   const payload = {
     uid: user.id,
     name: user.name,
