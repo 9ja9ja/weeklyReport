@@ -364,7 +364,7 @@ select.input-field option {
   justify-content: space-between;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
 }
 .nav-brand { font-weight: 700; font-size: 1.25rem; }
 .nav-links {
@@ -726,7 +726,7 @@ select.input-field option {
 .brief-toolbar {
   display: flex; flex-wrap: wrap; gap: 2px; align-items: center;
   padding: 6px 10px; background: var(--inner-bg); border: 1px solid var(--border);
-  border-radius: 8px 8px 0 0; position: sticky; top: 0; z-index: 10;
+  border-radius: 8px 8px 0 0; position: sticky; top: 53px; z-index: 9;
 }
 .tb-group { display: flex; gap: 2px; align-items: center; }
 .tb-sep { width: 1px; height: 22px; background: var(--border); margin: 0 6px; }
@@ -889,7 +889,7 @@ select.input-field option {
 @media (max-width: 768px) {
   .brief-header { flex-direction: column; align-items: flex-start; }
   .brief-actions { margin-left: 0; width: 100%; }
-  .brief-toolbar { gap: 1px; padding: 4px; }
+  .brief-toolbar { gap: 1px; padding: 4px; top: 45px; }
   .tb-btn { width: 28px; height: 28px; }
   .brief-editor-content .tiptap { padding: 20px 16px; font-size: 9.5pt; }
 }
