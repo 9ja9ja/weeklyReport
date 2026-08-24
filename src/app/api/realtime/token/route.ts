@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { currentUserId, unauthorized, forbidden, requireTeamMaster } from '@/lib/auth';
 import { currentEnvironment, isCollabWeek } from '@/lib/realtime/persist';
-import { membersCanWrite } from '@/lib/summaryStage';
+import { membersCanWrite, summaryStage } from '@/lib/summaryStage';
 import { signToken, roomName } from '@/lib/realtime/token';
 import { tokenSecret, TOKEN_TTL_SEC, isRealtimeConfigured } from '@/lib/realtime/secrets';
 import { ensureWeekDocument, ensureCategoryContainers } from '@/lib/realtime/seed';
@@ -106,6 +106,16 @@ async function issue(teamId: number, year: number, weekNum: number, allowSeed: b
     where: { teamId_year_weekNum: { teamId, year, weekNum } },
     select: { isLocked: true, isClosed: true }
   });
+
+  // 취합완료(locked) 상태면 팀장도 편집 불가 — 실시간 연결 없이 REST 조회로 충분하다.
+  // DO 벽시계 시간을 소모하지 않는다.
+  if (summaryStage(lock) === 'locked') {
+    return NextResponse.json(
+      { error: '취합이 완료된 주차입니다.', locked: true },
+      { status: 409 }
+    );
+  }
+
   const master = await requireTeamMaster(me, teamId);
 
   const payload = {
