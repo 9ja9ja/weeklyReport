@@ -867,7 +867,14 @@ select.input-field option {
    어떤 색이 "테마 흔적"인지는 문자열로 가릴 수 없어(#262626 처럼 검정이 아닌 값이 온다)
    편집기가 명도·무채색 여부로 판정해 이 클래스를 붙인다 (BriefEditor / briefColors 참고).
    배경이 칠해진 칸과 형광펜 글자에는 붙지 않는다 — 그 색은 배경에 맞춘 것이다. */
-.brief-editor-content .tiptap .brief-theme-color { color: var(--foreground) !important; }
+/* 데코레이션 wrapper(.brief-theme-color) 안쪽에 <span style="color:#222"> 같은
+   마크 렌더 요소가 들어가면, 부모의 !important 도 자식의 명시적 color 를 못 이긴다.
+   자식까지 같이 덮어야 한다. */
+.brief-editor-content .tiptap .brief-theme-color,
+.brief-editor-content .tiptap .brief-theme-color span[style*="color"],
+.brief-editor-content .tiptap .brief-theme-color mark[style*="color"] {
+  color: var(--foreground) !important;
+}
 .brief-editor-content .tiptap table .selectedCell {
   background: var(--primary-alpha-light);
 }
