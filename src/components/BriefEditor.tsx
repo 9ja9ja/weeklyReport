@@ -10,7 +10,7 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import type * as Y from 'yjs';
 import { briefExtensions, changeIndent, BRIEF_FRAGMENT } from '@/lib/realtime/briefSchema';
-import { stripThemeColors, shouldIgnoreColor } from '@/lib/briefColors';
+import { stripThemeColors, sanitizeBriefHtml, shouldIgnoreColor } from '@/lib/briefColors';
 
 interface Props {
   content: string;
@@ -127,8 +127,8 @@ const WordPaste = Extension.create({
       new Plugin({
         key: new PluginKey('wordPaste'),
         props: {
-          // 워드가 아닌 일반 붙여넣기도 테마 색을 들고 온다 — 모든 경로에서 걷어낸다
-          transformPastedHTML: (html: string) => stripThemeColors(html),
+          // 워드·다른 요약본 등 어디서 복사해도 테마 색·인라인 font-size 를 걷어낸다
+          transformPastedHTML: (html: string) => sanitizeBriefHtml(html),
           handlePaste: (view, event) => {
             const clipboardData = event.clipboardData;
             if (!clipboardData) return false;
@@ -138,7 +138,7 @@ const WordPaste = Extension.create({
             if (!isWord) return false;
 
             event.preventDefault();
-            const cleaned = stripThemeColors(cleanWordHtml(html));
+            const cleaned = sanitizeBriefHtml(cleanWordHtml(html));
             const parser = new DOMParser();
             const doc = parser.parseFromString(`<body>${cleaned}</body>`, 'text/html');
             const fragment = doc.body.innerHTML;
@@ -167,8 +167,9 @@ export default function BriefEditor({ content, onChange, editable, ydoc, provide
         ? [CollaborationCaret.configure({ provider, user })]
         : []),
     ],
-    // 공동 편집일 때 초기 content 를 주면 Yjs 문서와 합쳐져 내용이 두 벌이 된다
-    content: collaborative ? undefined : content,
+    // 공동 편집일 때 초기 content 를 주면 Yjs 문서와 합쳐져 내용이 두 벌이 된다.
+    // 비-협업 모드에서는 로드 시 테마 색·인라인 font-size 를 걸러낸다.
+    content: collaborative ? undefined : sanitizeBriefHtml(content),
     editable,
     immediatelyRender: false,
     // 공동 편집일 때는 본문의 진실원본이 Y.Doc 이라 HTML 이 필요 없다.
@@ -187,9 +188,11 @@ export default function BriefEditor({ content, onChange, editable, ydoc, provide
 
   const setContent = useCallback((html: string) => {
     if (!editor || collaborative) return;
+    // 로드 시 테마 색·인라인 font-size 정리 — CSS 기본값이 적용되도록
+    const clean = sanitizeBriefHtml(html);
     const cur = editor.getHTML();
     // preserveWhitespace 가 없으면 공백으로 만든 기존 들여쓰기가 파싱에서 접힌다
-    if (cur !== html) editor.commands.setContent(html, { emitUpdate: false, parseOptions: { preserveWhitespace: 'full' } });
+    if (cur !== clean) editor.commands.setContent(clean, { emitUpdate: false, parseOptions: { preserveWhitespace: 'full' } });
   }, [editor, collaborative]);
 
   useEffect(() => { setContent(content); }, [content, setContent]);

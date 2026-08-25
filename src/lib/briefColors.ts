@@ -99,3 +99,32 @@ export function stripThemeColors(html: string): string {
     return kept.length ? ` style="${kept.join('; ')}"` : '';
   });
 }
+
+/**
+ * HTML 문자열에서 테마 색 + 인라인 font-size 를 모두 걷어낸다.
+ *
+ * **에디터 콘텐츠 로드 시점**에 쓴다. 기존 저장된 HTML 의 인라인 색상과 font-size 를
+ * 제거해 CSS 기본값(12pt, var(--foreground))이 적용되게 한다.
+ * 의도적 색(빨강·파랑)과 레이아웃 속성(text-align, width 등)은 보존한다.
+ */
+export function sanitizeBriefHtml(html: string): string {
+  return html.replace(/\sstyle="([^"]*)"/gi, (whole, styles: string) => {
+    const kept = styles
+      .split(';')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .filter(decl => {
+        const i = decl.indexOf(':');
+        if (i < 0) return true;
+        const prop = decl.slice(0, i).trim().toLowerCase();
+        // 인라인 font-size 제거 — CSS 기본 12pt 를 쓰도록
+        if (prop === 'font-size') return false;
+        // 테마 색 제거
+        if (prop === 'color' || prop === 'background-color' || prop === 'background') {
+          return !isThemeArtifactColor(decl.slice(i + 1), prop !== 'color');
+        }
+        return true;
+      });
+    return kept.length ? ` style="${kept.join('; ')}"` : '';
+  });
+}
