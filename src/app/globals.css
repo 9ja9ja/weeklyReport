@@ -810,21 +810,21 @@ select.input-field option {
 .brief-editor-content .tiptap {
   padding: 40px 48px; outline: none; min-height: 600px;
   font-family: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-  font-size: 10.5pt; line-height: 1.65; color: #222;
+  font-size: 12pt; line-height: 1.65; color: #222;
 }
 @media (prefers-color-scheme: dark) {
   .brief-editor-content .tiptap { color: var(--foreground); }
 }
 .brief-editor-content .tiptap > *:first-child { margin-top: 0; }
 .brief-editor-content .tiptap h1 {
-  font-size: 16pt; font-weight: 800; margin: 20px 0 8px;
+  font-size: 18pt; font-weight: 800; margin: 20px 0 8px;
   letter-spacing: -0.02em;
 }
 .brief-editor-content .tiptap h2 {
-  font-size: 13pt; font-weight: 700; margin: 16px 0 6px;
+  font-size: 15pt; font-weight: 700; margin: 16px 0 6px;
 }
 .brief-editor-content .tiptap h3 {
-  font-size: 11pt; font-weight: 700; margin: 12px 0 4px;
+  font-size: 13pt; font-weight: 700; margin: 12px 0 4px;
 }
 .brief-editor-content .tiptap p { margin: 2px 0; }
 .brief-editor-content .tiptap ul,
@@ -891,7 +891,7 @@ select.input-field option {
   .brief-actions { margin-left: 0; width: 100%; }
   .brief-toolbar { gap: 1px; padding: 4px; top: 45px; }
   .tb-btn { width: 28px; height: 28px; }
-  .brief-editor-content .tiptap { padding: 20px 16px; font-size: 9.5pt; }
+  .brief-editor-content .tiptap { padding: 20px 16px; font-size: 11pt; }
 }
 
 /* ===== 손익보고 (PnL) ===== */
