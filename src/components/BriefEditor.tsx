@@ -95,7 +95,7 @@ function themeColorDecorations(doc: PMNode): DecorationSet {
 }
 
 /**
- * 저장된 문서의 테마 색 구제.
+ * 저장된 문서의 테마 색 구제 (표시 레이어).
  *
  * 워드에서 복사한 본문은 글자색이 `#262626` 처럼 **거의 검정**으로 박혀 오는데,
  * 다크모드에서는 배경과 같아 아예 보이지 않는다. 반대로 다크모드에서 복사한 흰 글씨는
@@ -114,6 +114,103 @@ const ThemeColorRescue = Extension.create({
         },
         props: {
           decorations(state) { return this.getState(state); }
+        }
+      })
+    ];
+  }
+});
+
+/**
+ * 문서 레벨에서 테마 색·인라인 font-size 마크를 직접 제거.
+ *
+ * sanitizeBriefHtml() 은 HTML 경로(비-협업 모드)에서만 동작하지만,
+ * 실시간 협업(Yjs) 모드에서는 Y.Doc → ProseMirror 문서로 직접 들어오므로 HTML 을 안 거친다.
+ * 이 확장은 **ProseMirror 트랜잭션 레벨**에서 동작해 모드에 무관하게 적용된다.
+ *
+ * appendTransaction 으로 문서가 바뀔 때마다 검사하되,
+ * 실제 정리할 게 없으면 트랜잭션을 안 만들어 성능 영향 최소화.
+ */
+const BriefSanitize = Extension.create({
+  name: 'briefSanitize',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('briefSanitize'),
+        appendTransaction(transactions, _oldState, newState) {
+          // 문서가 안 바뀌었으면 스킵
+          if (!transactions.some(t => t.docChanged)) return null;
+
+          const { tr, doc, schema } = newState;
+          const tsType = schema.marks.textStyle;
+          if (!tsType) return null;
+
+          let modified = false;
+          // 배경색 있는 셀 안의 텍스트는 건드리지 않는다 (ThemeColorRescue 와 같은 기준)
+          const filledCells = new Set<number>();
+          doc.descendants((node, pos) => {
+            const t = node.type.name;
+            if ((t === 'tableCell' || t === 'tableHeader') && (node.attrs as Record<string, unknown>).backgroundColor) {
+              filledCells.add(pos);
+              return false; // 하위 탐색 중단
+            }
+            return true;
+          });
+
+          doc.descendants((node, pos) => {
+            if (!node.isText) return true;
+            const ts = node.marks.find(m => m.type === tsType);
+            if (!ts) return true;
+
+            // 배경색 셀 안이면 스킵
+            const onFilled = doc.resolve(pos).depth > 0 && (() => {
+              let d = doc.resolve(pos);
+              for (let i = d.depth; i > 0; i--) {
+                const parent = d.node(i);
+                const pName = parent.type.name;
+                if (pName === 'tableCell' || pName === 'tableHeader') {
+                  return !!(parent.attrs as Record<string, unknown>).backgroundColor;
+                }
+              }
+              return false;
+            })();
+            if (onFilled) return true;
+
+            const attrs = ts.attrs as Record<string, unknown>;
+            let needStrip = false;
+
+            // 테마 색 확인
+            if (typeof attrs.color === 'string' && shouldIgnoreColor(attrs.color, {
+              highlighted: node.marks.some(m => m.type.name === 'highlight')
+            })) {
+              needStrip = true;
+            }
+
+            // 인라인 font-size 확인
+            if (attrs.fontSize) needStrip = true;
+
+            if (!needStrip) return true;
+
+            const from = pos;
+            const to = pos + node.nodeSize;
+            // 기존 textStyle 마크를 벗기고
+            tr.removeMark(from, to, tsType);
+            // color/fontSize 를 뺀 나머지 속성이 있으면 다시 붙인다
+            const kept: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(attrs)) {
+              if (k === 'fontSize') continue;
+              if (k === 'color' && typeof v === 'string' && shouldIgnoreColor(v, {
+                highlighted: node.marks.some(m => m.type.name === 'highlight')
+              })) continue;
+              if (v != null) kept[k] = v;
+            }
+            if (Object.keys(kept).length > 0) {
+              tr.addMark(from, to, tsType.create(kept));
+            }
+            modified = true;
+            return true;
+          });
+
+          return modified ? tr : null;
         }
       })
     ];
@@ -162,6 +259,7 @@ export default function BriefEditor({ content, onChange, editable, ydoc, provide
       ...briefExtensions({ collaborative }),
       WordPaste,
       ThemeColorRescue,
+      BriefSanitize,
       ...(ydoc ? [Collaboration.configure({ document: ydoc, field: BRIEF_FRAGMENT })] : []),
       ...(ydoc && provider && user
         ? [CollaborationCaret.configure({ provider, user })]
