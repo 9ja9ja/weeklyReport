@@ -839,7 +839,7 @@ select.input-field option {
 .brief-editor-content .tiptap table td,
 .brief-editor-content .tiptap table th {
   border: 1px solid #333; padding: 4px 8px;
-  font-size: 9.5pt; vertical-align: top; position: relative;
+  font-size: 11pt; vertical-align: top; position: relative;
   min-width: 40px; line-height: 1.55;
 }
 @media (prefers-color-scheme: dark) {
@@ -907,7 +907,7 @@ select.input-field option {
 }
 .brief-editor-content .tiptap table table td,
 .brief-editor-content .tiptap table table th {
-  font-size: 9pt; padding: 3px 6px;
+  font-size: 10pt; padding: 3px 6px;
 }
 
 @media (max-width: 768px) {
