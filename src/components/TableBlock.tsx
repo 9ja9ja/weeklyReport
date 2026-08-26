@@ -30,7 +30,8 @@ import {
   isNumericCell,
   isPlaceholderCell,
   numericCellColor,
-  formatNumericCell
+  formatNumericCell,
+  coloredDeltaParts
 } from '@/lib/reportBlocks';
 
 const NO_PEERS: DocPeer[] = [];
@@ -181,6 +182,27 @@ function cellStyle(v: string): React.CSSProperties {
   if (!isNumericCell(v)) return { textAlign: 'left' };
   const color = numericCellColor(v);
   return { textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...(color ? { color, fontWeight: 700 } : {}) };
+}
+
+/**
+ * 읽기전용 표에서 셀 내용을 그린다.
+ *
+ * "값(증감)" 표기("5(+3)")는 값까지 통째로 칠하면 안 되고 증감(부호+숫자)만 색을 입혀야 한다.
+ * input/textarea 는 글자 일부만 색을 못 입히는 한계가 있어 이 분리 렌더링은 읽기전용에서만 한다
+ * (편집 중엔 cellStyle 이 정렬만 맞추고 색은 numericCellColor 가 null 이라 안 입는다).
+ */
+function renderCellContent(v: string) {
+  const parts = coloredDeltaParts(v);
+  if (parts) {
+    return (
+      <>
+        {parts.prefix}
+        {parts.color ? <span style={{ color: parts.color, fontWeight: 700 }}>{parts.delta}</span> : parts.delta}
+        {parts.suffix}
+      </>
+    );
+  }
+  return isNumericCell(v) ? formatNumericCell(v) : v;
 }
 
 /**
@@ -670,7 +692,7 @@ export function TableBlockView({ block, showAuthor = true }: { block: TableBlock
                         ...cellStyle(v)
                       }}
                     >
-                      {isNumericCell(v) ? formatNumericCell(v) : v}
+                      {renderCellContent(v)}
                     </td>
                   );
                 })}

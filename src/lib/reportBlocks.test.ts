@@ -10,6 +10,7 @@ import {
   mergeCells, unmergeCells, mergeAt, isCovered, spanAt, setCell,
   clipboardForTablePaste, hasHtmlTable, isEditingTableCopy,
   tableToHtml, tableToText, HEADER_ROW,
+  isNumericCell, numericCellColor, formatNumericCell, coloredDeltaParts,
   type TableBlock
 } from './reportBlocks';
 
@@ -301,5 +302,45 @@ describe('제목줄 병합 내보내기', () => {
     const t = mergeCells(grid(1, 3), HEADER_ROW, 0, HEADER_ROW, 1);
     const headerLine = tableToText(t, '').split('\n')[0];
     expect(headerLine.split('\t')).toEqual(['', '', '']);   // createTableBlock 의 제목은 빈 문자열
+  });
+});
+
+describe('증감 표기 — "값(증감)" 형태 (예: "5(+3)")', () => {
+  it.each([
+    ['5(+3)', '+'],
+    ['3(-2)', '-'],
+    ['11(-9)', '-'],
+    ['12(+1)', '+'],
+    ['0(±0)', '±'],
+    ['0(+/-0)', '+/-']
+  ])('%s 는 숫자 셀로 인식된다', raw => {
+    expect(isNumericCell(raw)).toBe(true);
+  });
+
+  it('증가(+)는 빨강, 감소(-)는 파랑, 변화없음(±·+/-)은 무채색 — 증감 부분만', () => {
+    expect(coloredDeltaParts('5(+3)')).toEqual({ prefix: '5(', delta: '+3', color: '#dc2626', suffix: ')' });
+    expect(coloredDeltaParts('3(-2)')).toEqual({ prefix: '3(', delta: '-2', color: '#2563eb', suffix: ')' });
+    expect(coloredDeltaParts('0(±0)')).toEqual({ prefix: '0(', delta: '±0', color: null, suffix: ')' });
+    expect(coloredDeltaParts('0(+/-0)')).toEqual({ prefix: '0(', delta: '+/-0', color: null, suffix: ')' });
+  });
+
+  it('값 부분은 numericCellColor 로 통째로 칠하지 않는다 (증감만 따로 칠해야 하므로)', () => {
+    expect(numericCellColor('5(+3)')).toBeNull();
+    expect(numericCellColor('3(-2)')).toBeNull();
+  });
+
+  it('값·증감 양쪽에 천단위 콤마를 넣는다', () => {
+    expect(formatNumericCell('5000(+300)')).toBe('5,000(+300)');
+    expect(formatNumericCell('12000(-1500)')).toBe('12,000(-1,500)');
+  });
+
+  it('단위가 괄호 뒤에 붙어도 유지된다', () => {
+    expect(coloredDeltaParts('5(+3)건')).toEqual({ prefix: '5(', delta: '+3', color: '#dc2626', suffix: ')건' });
+  });
+
+  it('HTML 내보내기는 증감 부분만 <span> 으로 색을 입힌다', () => {
+    const t = setCell(createTableBlock(1, 1), 0, 0, '5(+3)');
+    const html = tableToHtml(t);
+    expect(html).toContain('5(<span style="color:#dc2626;font-weight:bold;">+3</span>)');
   });
 });

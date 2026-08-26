@@ -426,6 +426,13 @@ const TRAILING_UNIT_RE = /[^\d.,]+$/;
 const PAREN_NUMBER_RE = /^\(\s*([\d,]+(?:\.\d+)?)\s*\)\s*([^\d.,\s]{0,4})$/;
 /** 값이 없음을 뜻하는 자리표시자 — 숫자 열에서 자릿수를 맞춰야 하므로 가운데 정렬한다 */
 const PLACEHOLDER_RE = /^[-−–—]{1,2}$/;
+/**
+ * "값(증감)" 표기 — "5(+3)", "0(±0)", "10(+10)"처럼 현재 값 뒤에 전주 대비 증감을
+ * 괄호로 붙인 꼴. 스크립트 개발/수정 건수·정산 건수 등에 쓴다.
+ * 부호는 △▲(증가) ▽▼(감소) ±/+/-(-)(변화없음·증가·감소) 를 모두 받는다.
+ * "+/-0"처럼 ± 를 못 쳐서 슬래시로 대신 쓰는 경우도 있어 별도 분기로 먼저 잡는다.
+ */
+const VALUE_DELTA_RE = /^([\d,]+(?:\.\d+)?)\s*\(\s*(△|▲|▽|▼|\+\/-|\+\/−|±|\+|-|−)\s*([\d,]*(?:\.\d+)?)\s*\)\s*([^\d.,\s]{0,4})$/;
 
 /** 앞의 기호/화살표(△▲▽▼±)와 뒤의 단위(%, 건, MM 등)를 떼어낸 숫자 핵심부만 반환 */
 function numericCore(raw: string): string {
@@ -439,15 +446,30 @@ function parenNumber(raw: string): { core: string; unit: string } | null {
   return m ? { core: m[1], unit: m[2] ?? '' } : null;
 }
 
+/** "값(증감)" 표기면 { value, sign, delta, unit } 반환, 아니면 null */
+function valueDelta(raw: string): { value: string; sign: string; delta: string; unit: string } | null {
+  const m = raw.trim().match(VALUE_DELTA_RE);
+  if (!m) return null;
+  return { value: m[1], sign: m[2], delta: m[3] ?? '', unit: m[4] ?? '' };
+}
+
+/** 증감 부호 → 색 (증가 빨강 / 감소 파랑 / 변화없음은 무채색이라 null) */
+function signColor(sign: string | undefined): string | null {
+  if (sign === '△' || sign === '▲' || sign === '+') return '#dc2626';
+  if (sign === '▽' || sign === '▼' || sign === '-' || sign === '−') return '#2563eb';
+  return null;
+}
+
 /** 값 없음 자리표시자(-, --, — 등)인지 */
 export function isPlaceholderCell(raw: string): boolean {
   return PLACEHOLDER_RE.test(raw.trim());
 }
 
-/** 셀이 숫자 표기(증감 기호·단위·괄호 음수 포함)인지 판정 — 아니면 일반 텍스트로 취급 */
+/** 셀이 숫자 표기(증감 기호·단위·괄호 음수·"값(증감)" 포함)인지 판정 — 아니면 일반 텍스트로 취급 */
 export function isNumericCell(raw: string): boolean {
   if (isPlaceholderCell(raw)) return false; // 자리표시자는 숫자가 아니라 별도 정렬 규칙을 따른다
   if (parenNumber(raw)) return true;
+  if (valueDelta(raw)) return true;
   const core = numericCore(raw);
   return core !== '' && /^[\d,]+(\.\d+)?$/.test(core);
 }
@@ -455,21 +477,48 @@ export function isNumericCell(raw: string): boolean {
 /**
  * 숫자 셀의 색상 — 손익보고와 같은 관례:
  * 증가(△▲ 또는 +) 빨강, 감소(▽▼ 또는 -/−) 파랑, 동일(±) 무채색
+ *
+ * "값(증감)" 표기("5(+3)")는 값 부분까지 통째로 칠하면 안 되므로 여기서는 null 을 준다 —
+ * 증감 부분만 따로 칠하는 건 {@link coloredDeltaParts} 를 렌더링에 쓴다. 입력칸(textarea)은
+ * 글자 일부만 색을 못 입히는 한계가 있어 이 표기는 편집 중엔 색 없이 정렬만 적용된다.
  */
 export function numericCellColor(raw: string): string | null {
   if (!isNumericCell(raw)) return null;
   // 괄호 표기는 회계 관례상 음수 → 감소와 같은 파랑
   if (parenNumber(raw)) return '#2563eb';
+  if (valueDelta(raw)) return null;
   const m = raw.trim().match(LEADING_SIGN_RE);
-  const sign = m?.[1];
-  if (sign === '△' || sign === '▲' || sign === '+') return '#dc2626';
-  if (sign === '▽' || sign === '▼' || sign === '-' || sign === '−') return '#2563eb';
-  return null;
+  return signColor(m?.[1]);
+}
+
+/**
+ * "값(증감)" 표기를 화면에 그릴 때 쓰는 조각 — 값은 무채색, 증감(부호+숫자)만 색을 입힌다.
+ * 해당 표기가 아니면 null.
+ */
+export function coloredDeltaParts(raw: string): { prefix: string; delta: string; color: string | null; suffix: string } | null {
+  const vd = valueDelta(raw);
+  if (!vd) return null;
+  const value = withThousands(vd.value) ?? vd.value;
+  const delta = vd.delta ? (withThousands(vd.delta) ?? vd.delta) : '';
+  return {
+    prefix: `${value}(`,
+    delta: `${vd.sign}${delta}`,
+    color: signColor(vd.sign),
+    suffix: `)${vd.unit}`
+  };
 }
 
 /** 숫자 셀을 천단위 콤마로 재포맷 (기호·단위는 그대로 유지). 숫자가 아니면 원문 반환 */
 export function formatNumericCell(raw: string): string {
   const s = raw.trim();
+
+  // "값(증감)" 은 값·증감 양쪽에 각각 천단위 콤마를 넣는다 — 5000(+300) → 5,000(+300)
+  const vd = valueDelta(s);
+  if (vd) {
+    const value = withThousands(vd.value) ?? vd.value;
+    const delta = vd.delta ? (withThousands(vd.delta) ?? vd.delta) : '';
+    return `${value}(${vd.sign}${delta})${vd.unit}`;
+  }
 
   // 괄호 음수는 괄호를 유지한 채 안쪽 숫자만 천단위 콤마를 넣는다 — (1234)원 → (1,234)원
   const paren = parenNumber(s);
@@ -544,6 +593,14 @@ export function tableToHtml(t: TableBlock): string {
           // 값 없음(-)은 숫자 열의 자릿수를 흐트러뜨리지 않도록 가운데 정렬
           if (isPlaceholderCell(v)) return `<td style="${cell}text-align:center;"${attrs}>${cellHtml(v)}</td>`;
           if (!isNumericCell(v)) return `<td style="${cell}text-align:left;"${attrs}>${cellHtml(v)}</td>`;
+          // "값(증감)" 은 값은 무채색으로 두고 증감(부호+숫자)만 색을 입힌다
+          const parts = coloredDeltaParts(v);
+          if (parts) {
+            const deltaHtml = parts.color
+              ? `<span style="color:${parts.color};font-weight:bold;">${cellHtml(parts.delta)}</span>`
+              : cellHtml(parts.delta);
+            return `<td style="${cell}text-align:right;"${attrs}>${cellHtml(parts.prefix)}${deltaHtml}${cellHtml(parts.suffix)}</td>`;
+          }
           const color = numericCellColor(v);
           const style = `${cell}text-align:right;${color ? `color:${color};font-weight:bold;` : ''}`;
           return `<td style="${style}"${attrs}>${cellHtml(formatNumericCell(v))}</td>`;
