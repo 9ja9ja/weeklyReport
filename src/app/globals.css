@@ -804,6 +804,13 @@ select.input-field option {
   border-radius: 0 0 8px 8px; min-height: 600px;
   background: white;
 }
+/* 잠금(읽기전용) 상태에는 툴바가 아예 렌더링되지 않는다 — 위에서 이어 붙일 테두리가
+   없으므로 이때는 상자를 스스로 완결(상단 테두리 + 전체 라운드)해야 좌우 선이
+   중간에 뚝 끊긴 것처럼 보이지 않는다 */
+.brief-editor-wrap > .brief-editor-content:first-child {
+  border-top: 1px solid var(--border);
+  border-radius: 8px;
+}
 @media (prefers-color-scheme: dark) {
   .brief-editor-content { background: var(--panel-bg); }
 }
