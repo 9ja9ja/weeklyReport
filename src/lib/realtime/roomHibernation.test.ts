@@ -107,7 +107,7 @@ function makeConnection(uid: number) {
   };
 }
 
-interface SaveCall { dirtyUserIds: number[]; ydoc: string }
+interface SaveCall { dirtyUserIds: number[]; ydoc: string; room: string }
 
 let saveCalls: SaveCall[] = [];
 let stored: Y.Doc;
@@ -128,7 +128,7 @@ beforeEach(() => {
       };
     }
     if (String(url).endsWith('/api/realtime/save')) {
-      saveCalls.push({ dirtyUserIds: body.dirtyUserIds ?? [], ydoc: body.ydoc });
+      saveCalls.push({ dirtyUserIds: body.dirtyUserIds ?? [], ydoc: body.ydoc, room: body.room });
       return {
         ok: true, status: 200,
         json: async () => ({ ok: true, revision: 6, docGeneration: 1, writeEpoch: 1 })
@@ -140,11 +140,11 @@ beforeEach(() => {
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
-async function newRoom() {
+async function newRoom(roomName: string = ROOM) {
   const { WeeklyRoom } = await import('../../../party/index');
   // 생성자는 (ctx, env) 를 받지만 Fake 는 env 만 쓴다
   const room = new (WeeklyRoom as unknown as new (env: unknown) => Record<string, unknown>)(ENV);
-  (room as unknown as { name: string }).name = ROOM;
+  (room as unknown as { name: string }).name = roomName;
   (room as unknown as { env: unknown }).env = ENV;
   return room as unknown as {
     name: string;
@@ -231,6 +231,38 @@ describe('룸 하이버네이션 이후 저장', () => {
     await room.onSave();
 
     expect(saveCalls.length).toBe(0);
+  });
+});
+
+/**
+ * 요약본(Brief)도 같은 WeeklyRoom 클래스·같은 flush() 를 지난다.
+ * 게다가 요약본은 소수가 오래 열어두고 쓰는 편이라, 남이 새로 접속해 감시를
+ * 되살려 줄 확률이 낮다 — 하이버네이션 피해가 주간보고보다 크다.
+ */
+describe('요약본 룸도 같은 경로로 저장된다', () => {
+  const BRIEF_ROOM = 'production-brief-2026-w35-g1';
+
+  /** 요약본은 본문이 블록 JSON 이 아니므로 단순 텍스트 변경으로 편집을 흉내낸다 */
+  function briefEdit(base: Y.Doc): Uint8Array {
+    const draft = new Y.Doc();
+    Y.applyUpdate(draft, Y.encodeStateAsUpdate(base));
+    const before = Y.encodeStateVector(draft);
+    draft.getText('brief').insert(0, '이번 주 요약 한 줄');
+    return Y.encodeStateAsUpdate(draft, before);
+  }
+
+  it('깨어난 뒤 들어온 요약본 편집도 저장된다', async () => {
+    const room = await newRoom(BRIEF_ROOM);
+    const conn = makeConnection(39);
+    room.connections = [conn];
+
+    await room.onStart();
+    await room.onMessage(conn, briefEdit(stored));
+    await room.onSave();
+
+    expect(saveCalls.length).toBe(1);
+    expect(saveCalls[0]?.room).toBe(BRIEF_ROOM);
+    expect(saveCalls[0]?.dirtyUserIds).toEqual([39]);
   });
 });
 

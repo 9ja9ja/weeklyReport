@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
 import { isExecutiveGroup } from '@/lib/roles';
+import { loadDisplayPrefs, DEFAULT_DISPLAY_PREFS, isPlaceholderSummary } from '@/lib/summaryPrefs';
 import { buildOverviewHtml, type DocTeam } from '@/lib/overviewDoc';
 import { getWeekRange, getNextWeek } from '@/lib/weekUtils';
 import type { ContentBlock } from '@/lib/reportBlocks';
@@ -70,8 +71,12 @@ export async function POST(request: Request) {
     // 화면(전체 취합본)과 같은 대상이어야 한다 — 임원 그룹은 보고를 쓰지 않으므로 뺀다
     const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
-    const summaryMap = new Map(summaries.map(s => [s.teamId, safeState(s.contents)]));
-    const summaryPrefs = new Map(summaries.map(s => [s.teamId, { includeEmpty: s.includeEmpty, includeAuthor: s.includeAuthor }]));
+    // 설정만 담긴 자리표시 행은 취합본으로 세지 않는다 — 세면 개별 보고 폴백이 막힌다
+    const summaryMap = new Map(
+      summaries.filter(s => !isPlaceholderSummary(s.contents)).map(s => [s.teamId, safeState(s.contents)])
+    );
+    // 값이 없으면 직전 주차를 물려받는다 — 화면(전체 취합본)과 같은 규칙을 써야 한다
+    const displayPrefs = await loadDisplayPrefs(teams.map(t => t.id), year, weekNum);
     const lockMap = new Map(locks.map(l => [l.teamId, l]));
     const fallback = new Map<number, EditorState>();
     reports.forEach(rep => {
@@ -89,7 +94,7 @@ export async function POST(request: Request) {
 
     const docTeams: DocTeam[] = teams.map(team => {
       const data = summaryMap.get(team.id) ?? fallback.get(team.id) ?? {};
-      const prefs = summaryPrefs.get(team.id);
+      const prefs = displayPrefs.get(team.id) ?? DEFAULT_DISPLAY_PREFS;
       const parts = team.parts.map(p => ({
         id: p.id,
         name: p.name,
@@ -108,8 +113,8 @@ export async function POST(request: Request) {
       return {
         id: team.id, name: team.name, division: team.division,
         isLocked: lockMap.get(team.id)?.isLocked ?? false, hasContent,
-        includeEmpty: prefs?.includeEmpty ?? true,
-        includeAuthor: prefs?.includeAuthor ?? true,
+        includeEmpty: prefs.includeEmpty,
+        includeAuthor: prefs.includeAuthor,
         parts
       };
     });

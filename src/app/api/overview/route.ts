@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireOverviewAccess, currentUserId, unauthorized } from '@/lib/auth';
 import { isExecutiveGroup } from '@/lib/roles';
+import { loadDisplayPrefs, DEFAULT_DISPLAY_PREFS, isPlaceholderSummary } from '@/lib/summaryPrefs';
 import { summaryStage } from '@/lib/summaryStage';
 import type { ContentBlock } from '@/lib/reportBlocks';
 
@@ -72,8 +73,13 @@ export async function GET(request: Request) {
     // 취합 현황(잠금 2/11 · 작성 8/11)의 분모만 늘린다.
     const teams = allTeams.filter(t => !isExecutiveGroup(t));
 
-    const summaryMap = new Map(summaries.map(s => [s.teamId, safeParse(s.contents)]));
-    const summaryPrefs = new Map(summaries.map(s => [s.teamId, { includeEmpty: s.includeEmpty, includeAuthor: s.includeAuthor }]));
+    // 설정만 담긴 자리표시 행은 취합본으로 세지 않는다 — 세면 개별 보고 폴백이 막힌다
+    const summaryMap = new Map(
+      summaries.filter(s => !isPlaceholderSummary(s.contents)).map(s => [s.teamId, safeParse(s.contents)])
+    );
+    // 표시 설정은 값이 없으면 직전 주차를 물려받는다 — 규칙은 summaryPrefs 한 곳에 있다.
+    // 여기서 '?? true' 로 따로 판정하면 팀별 취합본과 어긋나 체크박스와 출력이 달라진다.
+    const displayPrefs = await loadDisplayPrefs(teams.map(t => t.id), year, weekNum);
     const lockMap = new Map(locks.map(l => [l.teamId, l]));
 
     // 취합본이 없는 팀은 개별 보고를 합쳐서 만든다 (항목이 속한 팀 기준)
@@ -120,7 +126,7 @@ export async function GET(request: Request) {
         p.majors.some(m => m.categories.some(c => c.current.length > 0 || c.next.length > 0))
       );
 
-      const prefs = summaryPrefs.get(team.id);
+      const prefs = displayPrefs.get(team.id) ?? DEFAULT_DISPLAY_PREFS;
       return {
         id: team.id,
         name: team.name,
@@ -131,8 +137,8 @@ export async function GET(request: Request) {
         lockedAt: lock?.lockedAt ?? null,
         hasSummary: summaryMap.has(team.id),
         hasContent: filled,
-        includeEmpty: prefs?.includeEmpty ?? true,
-        includeAuthor: prefs?.includeAuthor ?? true,
+        includeEmpty: prefs.includeEmpty,
+        includeAuthor: prefs.includeAuthor,
         parts
       };
     });

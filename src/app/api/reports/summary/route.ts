@@ -7,6 +7,7 @@ import { materializeToJson } from '@/lib/realtime/materialize';
 import { roomName } from '@/lib/realtime/token';
 import { announceGeneration } from '@/lib/realtime/roomControl';
 import { summaryStage, masterCanEditSummary } from '@/lib/summaryStage';
+import { loadDisplayPrefs, DEFAULT_DISPLAY_PREFS } from '@/lib/summaryPrefs';
 import { requireTeamMaster, currentUserId, unauthorized } from '@/lib/auth';
 
 /** 취합본 JSON 안의 블록 수 — "비었는가" 판단에만 쓴다 */
@@ -64,22 +65,10 @@ export async function GET(request: Request) {
       if (doc?.contents) contents = doc.contents;
     }
 
-    // null 이면(한 번도 설정한 적 없으면) 같은 팀의 직전 설정을 물려받는다
-    let includeEmpty = summary?.includeEmpty ?? null;
-    let includeAuthor = summary?.includeAuthor ?? null;
-    if (includeEmpty == null || includeAuthor == null) {
-      const prev = await prisma.summaryData.findFirst({
-        where: {
-          teamId,
-          includeEmpty: { not: null },
-          OR: [{ year: { lt: year } }, { year, weekNum: { lt: weekNum } }]
-        },
-        orderBy: [{ year: 'desc' }, { weekNum: 'desc' }],
-        select: { includeEmpty: true, includeAuthor: true }
-      });
-      if (includeEmpty == null) includeEmpty = prev?.includeEmpty ?? true;
-      if (includeAuthor == null) includeAuthor = prev?.includeAuthor ?? true;
-    }
+    // null 이면(한 번도 설정한 적 없으면) 같은 팀의 직전 설정을 물려받는다.
+    // 판정은 summaryPrefs 한 곳에 있다 — 전체취합본·PDF·엑셀도 같은 함수를 쓴다.
+    const { includeEmpty, includeAuthor } =
+      (await loadDisplayPrefs([teamId], year, weekNum)).get(teamId) ?? DEFAULT_DISPLAY_PREFS;
 
     return NextResponse.json({
       contents,
