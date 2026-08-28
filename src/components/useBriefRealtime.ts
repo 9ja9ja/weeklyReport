@@ -9,6 +9,10 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as Y from 'yjs';
 import YProvider from 'y-partyserver/provider';
+import {
+  reconnectCeilingMs, shouldNoticeDisconnect,
+  DISCONNECT_NOTICE_AFTER_MS, DISCONNECTED_NOTICE
+} from '@/lib/realtime/reconnectPolicy';
 import { applyLocalEdit } from './useSharedDoc';
 
 export type BriefMode = 'loading' | 'legacy' | 'realtime';
@@ -89,6 +93,8 @@ export function useBriefRealtime(
     if (!userId) return;
 
     let disposed = false;
+    let disconnectedSince: number | null = null;
+    let noticeTimer: ReturnType<typeof setTimeout> | null = null;
     let provider: YProvider | null = null;
     let doc: Y.Doc | null = null;
     /** 연속 토큰 실패 횟수 — 권한이 사라졌는데 무한 재접속만 도는 상황을 끊는다 */
@@ -174,6 +180,8 @@ export function useBriefRealtime(
           tokenFailures = 0;
           return { token: t.token };
         },
+        // 주간보고와 같은 이유로 재접속 상한을 올리고 클라이언트마다 다르게 준다
+        maxBackoffTime: reconnectCeilingMs(),
         connect: true
       });
 
@@ -220,7 +228,29 @@ export function useBriefRealtime(
         provider.connect();
       };
 
-      provider.on('status', (e: { status: string }) => patch({ connected: e.status === 'connected' }));
+      /** 끊김이 지속될 때만 알린다 — 짧은 순단마다 띄우면 소음이 된다 */
+      provider.on('status', (e: { status: string }) => {
+        const connected = e.status === 'connected';
+        if (connected) {
+          disconnectedSince = null;
+          if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
+          setState(s => (disposed ? s : {
+            ...s, connected: true,
+            notice: s.notice === DISCONNECTED_NOTICE ? '' : s.notice
+          }));
+          return;
+        }
+        if (disconnectedSince == null) disconnectedSince = Date.now();
+        if (!noticeTimer) {
+          noticeTimer = setTimeout(() => {
+            noticeTimer = null;
+            if (shouldNoticeDisconnect({ connected: false, disconnectedSince, now: Date.now() })) {
+              patch({ notice: DISCONNECTED_NOTICE });
+            }
+          }, DISCONNECT_NOTICE_AFTER_MS);
+        }
+        patch({ connected: false });
+      });
       // 한 번 받으면 내려가지 않는다. 순단으로 편집이 막히면 안 된다.
       // 서버 문서를 받은 뒤로는 "실시간으로 편집 중"이다 — 끊겨도 기존 방식으로 되돌리지 않는다
       provider.on('sync', (isSynced: boolean) => { if (isSynced) { wasLive = true; patch({ synced: true }); } });
@@ -288,6 +318,7 @@ export function useBriefRealtime(
 
     return () => {
       disposed = true;
+      if (noticeTimer) clearTimeout(noticeTimer);
       provider?.destroy();
       doc?.destroy();
       setState(initial);

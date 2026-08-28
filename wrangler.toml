@@ -12,6 +12,13 @@ main = "party/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 로그 보존. 켜지 않으면 console.error 가 실시간 tail 로만 보여서,
+# 장애가 지나간 뒤에는 원인을 확인할 방법이 없다(2026-08-28 두 차례 장애 때 겪음).
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+
 [[durable_objects.bindings]]
 name = "WeeklyRoom"
 class_name = "WeeklyRoom"

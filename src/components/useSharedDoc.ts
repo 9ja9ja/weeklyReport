@@ -10,6 +10,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import YProvider from 'y-partyserver/provider';
+import {
+  reconnectCeilingMs, shouldNoticeDisconnect,
+  DISCONNECT_NOTICE_AFTER_MS, DISCONNECTED_NOTICE
+} from '@/lib/realtime/reconnectPolicy';
 
 export type DocMode = 'loading' | 'legacy' | 'realtime';
 
@@ -78,6 +82,9 @@ export function useSharedDoc(
     if (!userId || !teamId) return;
 
     let disposed = false;
+    /** 연결이 끊긴 시각 — 지속되는 끊김만 사용자에게 알리기 위해 들고 있는다 */
+    let disconnectedSince: number | null = null;
+    let noticeTimer: ReturnType<typeof setTimeout> | null = null;
     let provider: YProvider | null = null;
     let doc: Y.Doc | null = null;
     let undo: Y.UndoManager | null = null;
@@ -154,6 +161,10 @@ export function useSharedDoc(
           tokenFailures = 0;
           return { token: t.token };
         },
+        // 재접속 상한을 올리고 클라이언트마다 다른 값을 준다.
+        // 기본값(2.5초·지터 없음)이면 서버가 룸을 못 열어주는 동안 접속자 전원이
+        // 같은 박자로 두드려, 재시도가 장애를 계속 먹여 살린다.
+        maxBackoffTime: reconnectCeilingMs(),
         connect: true
       });
 
@@ -199,7 +210,35 @@ export function useSharedDoc(
         provider.connect();
       };
 
-      provider.on('status', (e: { status: string }) => patch({ connected: e.status === 'connected' }));
+      /**
+       * 연결 상태 표시.
+       * 끊기면 provider 가 알아서 재접속하지만 화면에는 아무 말도 안 떠서, 사용자에게는
+       * 그냥 '작성 화면이 안 열린다'로만 보였다. 짧은 순단은 조용히 넘기고
+       * 지속될 때만 알린다.
+       */
+      provider.on('status', (e: { status: string }) => {
+        const connected = e.status === 'connected';
+        if (connected) {
+          disconnectedSince = null;
+          if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
+          // 잠금 안내 같은 다른 메시지를 지우지 않도록 연결 안내일 때만 걷는다
+          setState(s => (disposed ? s : {
+            ...s, connected: true,
+            notice: s.notice === DISCONNECTED_NOTICE ? '' : s.notice
+          }));
+          return;
+        }
+        if (disconnectedSince == null) disconnectedSince = Date.now();
+        if (!noticeTimer) {
+          noticeTimer = setTimeout(() => {
+            noticeTimer = null;
+            if (shouldNoticeDisconnect({ connected: false, disconnectedSince, now: Date.now() })) {
+              patch({ notice: DISCONNECTED_NOTICE });
+            }
+          }, DISCONNECT_NOTICE_AFTER_MS);
+        }
+        patch({ connected: false });
+      });
       // 서버 문서를 받은 뒤로는 "실시간으로 편집 중"이다 — 끊겨도 기존 방식으로 되돌리지 않는다
       provider.on('sync', (ok: boolean) => { if (ok) { wasLive = true; patch({ synced: true }); } });
       provider.awareness.on('change', () => patch({ peers: readPeers() }));
@@ -267,6 +306,7 @@ export function useSharedDoc(
 
     return () => {
       disposed = true;
+      if (noticeTimer) clearTimeout(noticeTimer);
       undo?.destroy();
       provider?.destroy();
       doc?.destroy();

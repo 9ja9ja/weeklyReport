@@ -132,6 +132,15 @@ export class WeeklyRoom extends YServer<Env> {
   async onLoad(): Promise<Y.Doc | void> {
     const res = await this.callNext('/api/realtime/doc', { room: this.name });
     if (!res.ok) {
+      // 여기서 던지면 partyserver 가 잡아 소켓을 1011 로 닫는다 —
+      // Cloudflare 지표에는 예외가 아니라 '연결 끊김'으로만 남아 원인을 알 수 없다.
+      // 실패한 상태코드와 사유를 반드시 남겨야 지나간 장애를 되짚을 수 있다.
+      const detail = (res.data as { error?: string; reason?: string } | null);
+      console.error('[onLoad] 룸 초기 상태 로드 실패', JSON.stringify({
+        room: this.name,
+        status: res.status,
+        error: detail?.error ?? detail?.reason ?? null
+      }));
       // 상태를 못 받으면 빈 문서로 열지 않는다. 빈 문서가 저장되면 내용이 날아간다.
       throw new Error(`룸 초기 상태 로드 실패: ${res.status}`);
     }
