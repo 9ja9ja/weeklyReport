@@ -38,6 +38,7 @@
   ],
   "exclude": [
     "node_modules",
-    "party"
+    "party",
+    "src/lib/realtime/roomHibernation.test.ts"
   ]
 }

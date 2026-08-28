@@ -111,6 +111,23 @@ export class WeeklyRoom extends YServer<Env> {
 
   // ── 영속화 ────────────────────────────────────────────────
 
+  /**
+   * 콜드스타트·하이버네이션 깨어남의 공통 진입점.
+   *
+   * WebSocket Hibernation 은 소켓을 열어둔 채 DO 를 메모리에서 내린다. 다시 깨어날 때
+   * partyserver 가 부르는 것은 onStart(→onLoad)와 onMessage 뿐이고, **이미 열려 있던
+   * 연결에는 onConnect 를 다시 부르지 않는다.** 그래서 변경 감시를 onConnect 에서만 걸면
+   * 깨어난 뒤의 편집이 전부 "변경 없음"으로 판정돼 flush 가 조용히 건너뛴다
+   * (클라이언트에는 '저장됨'이 뜬 채로). 여기서 걸어야 두 경로 모두에서 살아 있다.
+   *
+   * super.onStart() 이후에 거는 이유: 그 안에서 onLoad 결과를 this.document 에 반영하는데,
+   * 먼저 걸면 그 반영이 편집으로 잡혀 매 콜드스타트마다 헛저장이 일어난다.
+   */
+  async onStart(): Promise<void> {
+    await super.onStart();
+    this.watchUpdates();
+  }
+
   /** 룸 콜드스타트 — DB 에서 초기 상태를 가져온다 */
   async onLoad(): Promise<Y.Doc | void> {
     const res = await this.callNext('/api/realtime/doc', { room: this.name });
@@ -137,8 +154,8 @@ export class WeeklyRoom extends YServer<Env> {
 
   /**
    * 실제 문서 변경이 일어났을 때만 기여자로 기록한다.
-   * y-partyserver 가 onStart 에서 this.document 를 구성한 뒤여야 구독할 수 있어,
-   * 첫 연결 시점에 한 번 건다.
+   * y-partyserver 가 onStart 에서 this.document 를 구성한 뒤여야 구독할 수 있으므로
+   * onStart 끝에서 건다(하이버네이션 복귀 포함). 재진입은 플래그로 막는다.
    */
   private watchUpdates() {
     if (this.watchingUpdates) return;
@@ -166,8 +183,14 @@ export class WeeklyRoom extends YServer<Env> {
     // 룸 종류(report/brief)에 무관하게 같은 경로로 저장한다 —
     // Next 의 /api/realtime/save 가 룸 이름을 보고 알아서 분기한다.
     if (!this.roomKey) return false;
-    // 바뀐 게 없으면 저장하지 않는다. 잠금 확정(lock)은 상태를 확정해야 하므로 예외.
-    if (!this.dirtySinceSave && reason !== 'lock') {
+    // 바뀐 게 없으면 저장하지 않는다.
+    // 예외 둘:
+    //  - lock  : 잠금 확정은 상태 자체를 확정해야 한다.
+    //  - manual: 사용자가 [저장]을 눌렀다. 변경 감시가 어떤 이유로든 어긋나면
+    //            "저장되었습니다"만 뜨고 아무것도 안 남는 최악의 거짓 보고가 된다
+    //            (하이버네이션 복귀 시 감시 미등록으로 실제 발생). 눌린 저장은 항상 기록한다.
+    //            버튼 클릭은 빈도가 낮아 advisory lock 부담도 무시할 수 있다.
+    if (!this.dirtySinceSave && reason !== 'lock' && reason !== 'manual') {
       this.broadcastControl({ type: 'saved', revision: this.revision, at: Date.now(), noop: true });
       return true;
     }
