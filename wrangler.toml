@@ -35,4 +35,8 @@ new_sqlite_classes = ["WeeklyRoom"]
 # weekly-report-*.vercel.app 계열은 SSO 보호가 걸려 Worker 가 401 만 받는다(확인함).
 # 사내 도메인을 쓰면 Vercel alias 가 바뀌어도 이 값을 고칠 필요가 없다.
 # 로컬 개발은 .dev.vars 에서 덮어쓴다.
-NEXT_APP_URL = "https://service-weekly.fingerservice.co.kr"
+# DNS 전환(nginx 제거) 기간에는 Worker 를 사내 도메인에서 떼어 둔다.
+# 사내 도메인은 nginx 를 거치며 Vercel 봇 차단(X-Vercel-Mitigated: challenge)에 걸린 적이 있고,
+# Worker 의 fetch 는 자바스크립트 챌린지를 풀 수 없어 그대로 onLoad 실패로 이어진다.
+# 전환이 끝나 사내 도메인이 Vercel 직결이 되면 되돌려도 된다.
+NEXT_APP_URL = "https://pharos-weekly-report.vercel.app"

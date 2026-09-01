@@ -16,6 +16,7 @@ import {
   verifyToken, signServerRequest, verifyServerRequest, parseRoomName, roomNameOf,
   type RealtimeTokenPayload, type RoomKey
 } from '../src/lib/realtime/token';
+import { sendAlert, type AlertEnv } from './alert';
 
 export interface Env {
   /** 사용자 접속 토큰 서명키 */
@@ -25,6 +26,9 @@ export interface Env {
   /** Next 앱 주소 */
   NEXT_APP_URL: string;
   WeeklyRoom: DurableObjectNamespace;
+  /** 장애 알림용 (선택) — 없으면 알림만 꺼지고 편집은 그대로 동작한다 */
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 }
 
 /** 연결에 붙여두는 상태 */
@@ -141,6 +145,12 @@ export class WeeklyRoom extends YServer<Env> {
         status: res.status,
         error: detail?.error ?? detail?.reason ?? null
       }));
+      // 사람에게도 알린다. 이 실패는 소켓 1011 로만 끝나 지표에 예외로 남지 않아,
+      // 알리지 않으면 사용자가 신고할 때까지 아무도 모른다(2026-08-28 두 차례 그랬다).
+      await this.notify('룸 초기화 실패 — 편집 화면이 열리지 않습니다', {
+        status: res.status,
+        error: detail?.error ?? detail?.reason ?? null
+      });
       // 상태를 못 받으면 빈 문서로 열지 않는다. 빈 문서가 저장되면 내용이 날아간다.
       throw new Error(`룸 초기 상태 로드 실패: ${res.status}`);
     }
@@ -267,6 +277,10 @@ export class WeeklyRoom extends YServer<Env> {
     }
 
     this.broadcastControl({ type: 'save-failed', detail: lastError, reason: reason });
+    // 3회 재시도까지 실패했다 — 여기서 놓치면 편집 내용이 그대로 사라질 수 있다
+    await this.notify('저장 실패 — 편집 내용이 유실될 수 있습니다', {
+      reason, detail: lastError
+    });
     return false;
   }
 
@@ -438,6 +452,18 @@ export class WeeklyRoom extends YServer<Env> {
   }
 
   // ── 헬퍼 ──────────────────────────────────────────────────
+
+  /**
+   * 장애를 사람에게 알린다. 실패해도 절대 던지지 않는다 —
+   * 알림 때문에 룸이 더 망가지면 본말전도다.
+   */
+  private async notify(title: string, detail: Record<string, unknown>): Promise<void> {
+    try {
+      await sendAlert(this.env as AlertEnv, this.ctx.storage, {
+        title, room: this.name, detail
+      });
+    } catch { /* 알림 실패는 무시한다 */ }
+  }
 
   /** DB 의 현재 세대·잠금 상태를 다시 읽어 룸 상태를 맞춘다 */
   private async resync(): Promise<void> {
