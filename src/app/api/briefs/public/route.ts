@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const brief = await prisma.brief.findUnique({
     where: { year_weekNum: { year, weekNum } },
-    select: { title: true, content: true, year: true, weekNum: true },
+    select: { title: true, content: true, year: true, weekNum: true, isLocked: true },
   });
   return NextResponse.json({ brief });
 }

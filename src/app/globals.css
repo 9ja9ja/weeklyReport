@@ -670,6 +670,16 @@ select.input-field option {
   border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
 }
 
+/* 포털 공개 요약본 상태 배지.
+   내부 화면의 잠금 배지가 빨강인 것과 달리, 외부 열람자에게 잠금은
+   "확정되어 더 안 바뀜"이라는 좋은 신호라 초록으로 구분한다. */
+.brief-public-badge {
+  padding: 0.15rem 0.5rem; border-radius: 4px;
+  font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.brief-public-badge.is-final { background: #10b981; color: white; }
+.brief-public-badge.is-draft { background: #f59e0b; color: white; }
+
 /* ===== 실시간 공동 편집 상태 바 ===== */
 .brief-live-bar {
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;

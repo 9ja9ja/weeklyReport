@@ -10,6 +10,7 @@ const BriefEditor = dynamic(() => import('@/components/BriefEditor'), { ssr: fal
 interface BriefData {
   title: string;
   content: string;
+  isLocked: boolean;
 }
 
 /** 사내 포털에서 로그인 없이 여는 요약본 읽기 전용 페이지 (?key= 로 인증) */
@@ -23,6 +24,7 @@ function PublicBriefContent() {
   const [weekNum, setWeekNum] = useState(defaultWeek.weekNum);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [isLocked, setIsLocked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
 
@@ -31,9 +33,10 @@ function PublicBriefContent() {
     try {
       const res = await fetch(`/api/briefs/public?year=${year}&weekNum=${weekNum}&key=${encodeURIComponent(key)}`);
       if (res.status === 403) { setDenied(true); return; }
-      const data = await res.json();
+      const data: { brief: BriefData | null } = await res.json();
       setTitle(data.brief?.title || '');
       setContent(data.brief?.content || '');
+      setIsLocked(data.brief?.isLocked ?? false);
     } catch {
       setDenied(true);
     } finally {
@@ -90,7 +93,15 @@ function PublicBriefContent() {
           <>
             <div className="brief-title-row">
               <h3 style={{ margin: 0 }}>{title}</h3>
+              <span className={`brief-public-badge ${isLocked ? 'is-final' : 'is-draft'}`}>
+                {isLocked ? '확정' : '작성 중'}
+              </span>
             </div>
+            {!isLocked && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.4rem 0 0.6rem' }}>
+                아직 확정되지 않은 요약본으로, 내용이 변경될 수 있습니다.
+              </div>
+            )}
             <BriefEditor content={content} onChange={() => {}} editable={false} />
           </>
         )}
