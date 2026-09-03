@@ -101,8 +101,11 @@ function PublicBriefContent() {
 
 export default function PublicBriefPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <PublicBriefContent />
-    </Suspense>
+    <>
+      <meta name="referrer" content="no-referrer" />
+      <Suspense fallback={<div>Loading...</div>}>
+        <PublicBriefContent />
+      </Suspense>
+    </>
   );
 }

@@ -8,6 +8,8 @@ import crypto from 'crypto';
 export function verifyPortalKey(key: string | null): boolean {
   const secret = process.env.BRIEF_SHARE_KEY;
   if (!secret || !key) return false;
-  if (key.length !== secret.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(key), Buffer.from(secret));
+  const keyBuf = Buffer.from(key);
+  const secretBuf = Buffer.from(secret);
+  if (keyBuf.length !== secretBuf.length) return false;
+  return crypto.timingSafeEqual(keyBuf, secretBuf);
 }

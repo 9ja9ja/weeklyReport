@@ -9,10 +9,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: '접근 권한이 없습니다.' }, { status: 403 });
   }
 
-  const year = parseInt(searchParams.get('year') || '');
-  const weekNum = parseInt(searchParams.get('weekNum') || '');
-  if (!year || !weekNum) return NextResponse.json({ error: '연도와 주차가 필요합니다.' }, { status: 400 });
+  const year = Number(searchParams.get('year'));
+  const weekNum = Number(searchParams.get('weekNum'));
+  if (!Number.isFinite(year) || !Number.isFinite(weekNum) || year < 1 || weekNum < 1) {
+    return NextResponse.json({ error: '연도와 주차가 필요합니다.' }, { status: 400 });
+  }
 
-  const brief = await prisma.brief.findUnique({ where: { year_weekNum: { year, weekNum } } });
+  const brief = await prisma.brief.findUnique({
+    where: { year_weekNum: { year, weekNum } },
+    select: { title: true, content: true, year: true, weekNum: true },
+  });
   return NextResponse.json({ brief });
 }
