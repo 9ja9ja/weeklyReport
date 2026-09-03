@@ -325,8 +325,12 @@ export default function BriefPage() {
               ) : (
                 <h3 style={{ margin: 0 }}>{shownTitle}</h3>
               )}
-              {isLocked && (
+              {isLocked ? (
                 <span className="brief-lock-badge">잠금됨</span>
+              ) : !isMasterOrAbove && (
+                // 편집자는 잠금 버튼 라벨로 상태를 알지만 조회 전용 계정은 단서가 없다.
+                // 배지가 없으면 "확정본"인지 "아직 바뀔 수 있는 초안"인지 구분되지 않는다.
+                <span className="brief-status-badge is-draft">작성 중</span>
               )}
             </div>
             <BriefEditor

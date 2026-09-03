@@ -670,15 +670,17 @@ select.input-field option {
   border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
 }
 
-/* 포털 공개 요약본 상태 배지.
-   내부 화면의 잠금 배지가 빨강인 것과 달리, 외부 열람자에게 잠금은
-   "확정되어 더 안 바뀜"이라는 좋은 신호라 초록으로 구분한다. */
-.brief-public-badge {
+/* 요약본 상태 배지 (조회 전용 열람자용).
+   편집자는 잠금 버튼 라벨로 상태를 알 수 있지만, 조회만 하는 임원·팀원은
+   단서가 없어 지금 보는 내용이 확정본인지 알 수 없다.
+   포털 공개 뷰에서 잠금을 초록으로 쓰는 이유: 외부 열람자에게 잠금은
+   제약이 아니라 "확정되어 더 안 바뀜"이라는 긍정 신호이기 때문. */
+.brief-status-badge {
   padding: 0.15rem 0.5rem; border-radius: 4px;
   font-size: 0.75rem; font-weight: 600; white-space: nowrap;
 }
-.brief-public-badge.is-final { background: #10b981; color: white; }
-.brief-public-badge.is-draft { background: #f59e0b; color: white; }
+.brief-status-badge.is-final { background: #10b981; color: white; }
+.brief-status-badge.is-draft { background: #f59e0b; color: white; }
 
 /* ===== 실시간 공동 편집 상태 바 ===== */
 .brief-live-bar {

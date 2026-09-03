@@ -93,7 +93,7 @@ function PublicBriefContent() {
           <>
             <div className="brief-title-row">
               <h3 style={{ margin: 0 }}>{title}</h3>
-              <span className={`brief-public-badge ${isLocked ? 'is-final' : 'is-draft'}`}>
+              <span className={`brief-status-badge ${isLocked ? 'is-final' : 'is-draft'}`}>
                 {isLocked ? '확정' : '작성 중'}
               </span>
             </div>
