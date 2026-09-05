@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  reconnectCeilingMs, shouldNoticeDisconnect,
+  reconnectCeilingMs, shouldNoticeDisconnect, roomDrifted,
   RECONNECT_CEILING_MIN_MS, RECONNECT_CEILING_MAX_MS, DISCONNECT_NOTICE_AFTER_MS
 } from './reconnectPolicy';
 
@@ -48,5 +48,21 @@ describe('shouldNoticeDisconnect — 언제 사용자에게 알리는가', () =>
 
   it('끊긴 시각을 모르면 알리지 않는다', () => {
     expect(shouldNoticeDisconnect({ connected: false, disconnectedSince: null, now: 999_999 })).toBe(false);
+  });
+});
+
+describe('roomDrifted — 재접속 토큰이 다른 룸을 가리키는가', () => {
+  const ROOM = 'production-report-t6-2026-w36-g2';
+
+  it('같은 룸이면 그대로 재접속한다', () => {
+    expect(roomDrifted(ROOM, ROOM)).toBe(false);
+  });
+
+  it('세대가 올라 룸 이름이 바뀌었으면 멈춰야 한다', () => {
+    expect(roomDrifted(ROOM, 'production-report-t6-2026-w36-g3')).toBe(true);
+  });
+
+  it('토큰 응답에 룸이 없으면(구버전 서버) 판단하지 않는다', () => {
+    expect(roomDrifted(ROOM, undefined)).toBe(false);
   });
 });

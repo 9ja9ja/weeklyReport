@@ -148,7 +148,11 @@ async function newRoom(roomName: string = ROOM) {
   (room as unknown as { env: unknown }).env = ENV;
   return room as unknown as {
     name: string;
+    env: unknown;
+    /** 실제로는 DurableObjectState — 테스트는 알림 스로틀이 쓰는 storage 만 흉내낸다 */
+    ctx: unknown;
     connections: unknown[];
+    broadcastCustomMessage: (msg: string) => void;
     onStart(): Promise<void>;
     onConnect(conn: unknown, ctx: unknown): Promise<void>;
     onMessage(conn: unknown, msg: Uint8Array): Promise<void>;
@@ -294,4 +298,185 @@ describe('[저장] 버튼(manual flush)', () => {
     expect(saveCalls.length).toBe(1);
     expect(saveCalls[0]?.dirtyUserIds).toEqual([21]);
   });
+});
+
+/**
+ * 구세대 룸 은퇴.
+ *
+ * 취합본 저장(restore)은 DB 세대를 올린 **뒤** 방금 구세대가 된 룸에 generation 명령을 보낸다.
+ * partyserver 는 그 요청을 처리하기 전에 onStart→onLoad 를 먼저 돌리므로, 메모리에 없던
+ * 구세대 룸은 onLoad 에서 "세대가 다릅니다" 409 를 만난다. 이건 장애가 아니라 정상 은퇴다 —
+ * 알리지 않고, 남은 접속자를 새 룸으로 보내야 한다. (2026-09-04 텔레그램 알림 8건의 원인.
+ * onLoad 가 알림 후 던지기만 해서 kick 이 한 번도 전달되지 않았다.)
+ */
+describe('구세대 룸 은퇴 (onLoad 409)', () => {
+  const OLD_ROOM = 'production-report-t6-2026-w36-g2';
+  const ALERT_ENV = { ...ENV, TELEGRAM_BOT_TOKEN: 'bot-token', TELEGRAM_CHAT_ID: '-100' };
+  const GENERATION_MISMATCH = '세대가 다릅니다. 새 룸으로 접속해야 합니다.';
+
+  let telegramCalls = 0;
+  let docResponse: { ok: boolean; status: number; body: Record<string, unknown> };
+
+  function stubFetch() {
+    vi.stubGlobal('fetch', async (url: string, init: { body: string }) => {
+      const u = String(url);
+      if (u.startsWith('https://api.telegram.org/')) {
+        telegramCalls++;
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }
+      if (u.endsWith('/api/realtime/doc')) {
+        return { ok: docResponse.ok, status: docResponse.status, json: async () => docResponse.body };
+      }
+      if (u.endsWith('/api/realtime/save')) {
+        const body = JSON.parse(init.body);
+        saveCalls.push({ dirtyUserIds: body.dirtyUserIds ?? [], ydoc: body.ydoc, room: body.room });
+        return { ok: true, status: 200, json: async () => ({ ok: true, revision: 6, docGeneration: 1, writeEpoch: 1 }) };
+      }
+      throw new Error(`예상하지 못한 호출: ${url}`);
+    });
+  }
+
+  /** 알림이 실제로 나가는지 보려면 스로틀 스토리지와 텔레그램 시크릿이 있어야 한다 */
+  async function oldRoom() {
+    const room = await newRoom(OLD_ROOM);
+    room.env = ALERT_ENV;
+    const store = new Map<string, unknown>();
+    room.ctx = { storage: {
+      get: async (k: string) => store.get(k),
+      put: async (k: string, v: unknown) => { store.set(k, v); }
+    } };
+    return room;
+  }
+
+  beforeEach(() => {
+    telegramCalls = 0;
+    // DB 는 이미 세대 3 — 이 룸(g2)은 구세대다
+    docResponse = { ok: false, status: 409, body: { error: GENERATION_MISMATCH, docGeneration: 3 } };
+    stubFetch();
+  });
+
+  it('DB 세대가 룸 세대보다 크면 텔레그램 알림을 보내지 않는다', async () => {
+    const room = await oldRoom();
+
+    await expect(room.onStart()).rejects.toThrow();
+
+    expect(telegramCalls).toBe(0);
+  });
+
+  it('남아 있던 접속자에게 generation-changed 를 방송하고 4404 로 닫는다', async () => {
+    const room = await oldRoom();
+    const conn = makeConnection(31);
+    conn.close = vi.fn();
+    room.connections = [conn];
+    const sent: string[] = [];
+    room.broadcastCustomMessage = (m: string) => { sent.push(m); };
+
+    await expect(room.onStart()).rejects.toThrow();
+
+    expect(conn.close).toHaveBeenCalledWith(4404, expect.any(String));
+    expect(sent.map(s => JSON.parse(s))).toContainEqual({ type: 'generation-changed', docGeneration: 3 });
+  });
+
+  it('은퇴한 룸은 편집 메시지가 와도 저장하지 않는다 (빈 문서 저장 금지)', async () => {
+    const room = await oldRoom();
+    const conn = makeConnection(31);
+    room.connections = [conn];
+
+    await expect(room.onStart()).rejects.toThrow();
+    await room.onMessage(conn, editUpdate(stored, 31));
+    await room.onSave();
+
+    expect(saveCalls.length).toBe(0);
+  });
+
+  it('409 라도 DB 세대가 룸 세대보다 작으면(문서 재생성 이상) 기존대로 알린다', async () => {
+    docResponse = { ok: false, status: 409, body: { error: GENERATION_MISMATCH, docGeneration: 1 } };
+    const room = await oldRoom();
+
+    await expect(room.onStart()).rejects.toThrow();
+
+    expect(telegramCalls).toBe(1);
+  });
+
+  it('409 가 아닌 실패(5xx)는 기존대로 알린다', async () => {
+    docResponse = { ok: false, status: 503, body: { error: 'unavailable' } };
+    const room = await oldRoom();
+
+    await expect(room.onStart()).rejects.toThrow();
+
+    expect(telegramCalls).toBe(1);
+  });
+});
+
+/**
+ * 살아있는(warm) 룸이 뒤늦게 세대 불일치를 아는 경우.
+ *
+ * generation 명령이 타임아웃으로 못 닿았거나(backfill 처럼 통지 자체가 없는 경로도 있다)
+ * 구토큰으로 재접속한 사람이 있으면, 룸은 다음 저장에서 generation-mismatch 로 처음 안다.
+ * 그때도 접속자를 내보내고 저장을 멈춰야 옛 문서를 계속 방송하지 않는다.
+ */
+describe('살아있는 룸이 저장 중 세대 불일치를 만나면 은퇴한다', () => {
+  let saveResponse: { ok: boolean; status: number; body: Record<string, unknown> };
+  let docResponse: { ok: boolean; status: number; body: Record<string, unknown> };
+
+  beforeEach(() => {
+    saveResponse = { ok: true, status: 200, body: { ok: true, revision: 6, docGeneration: 1, writeEpoch: 1 } };
+    docResponse = { ok: true, status: 200, body: {
+      ydoc: bytesToBase64(Y.encodeStateAsUpdate(stored)),
+      docGeneration: 1, writeEpoch: 1, revision: 5, isLocked: false, seedId: 'seed-1'
+    } };
+    vi.stubGlobal('fetch', async (url: string, init: { body: string }) => {
+      const u = String(url);
+      if (u.endsWith('/api/realtime/doc')) {
+        return { ok: docResponse.ok, status: docResponse.status, json: async () => docResponse.body };
+      }
+      if (u.endsWith('/api/realtime/save')) {
+        const body = JSON.parse(init.body);
+        saveCalls.push({ dirtyUserIds: body.dirtyUserIds ?? [], ydoc: body.ydoc, room: body.room });
+        return { ok: saveResponse.ok, status: saveResponse.status, json: async () => saveResponse.body };
+      }
+      throw new Error(`예상하지 못한 호출: ${url}`);
+    });
+  });
+
+  /** 룸이 정상 시작한 뒤 DB 세대가 2 로 올라간 상황을 만든다 */
+  function generationMovedOn() {
+    docResponse = { ok: false, status: 409, body: { error: '세대가 다릅니다. 새 룸으로 접속해야 합니다.', docGeneration: 2 } };
+  }
+
+  for (const reason of ['generation-mismatch', 'epoch-mismatch'] as const) {
+    it(`저장이 ${reason} 로 거부되고 DB 세대가 올라가 있으면 접속자를 4404 로 내보낸다`, async () => {
+      const room = await newRoom();
+      const conn = makeConnection(21);
+      conn.close = vi.fn();
+      room.connections = [conn];
+
+      await room.onStart();                                   // DB 세대 1 — 정상 시작
+      await room.onMessage(conn, editUpdate(stored, 21));
+      saveResponse = { ok: false, status: 409, body: { reason } };
+      generationMovedOn();
+      await room.onSave();
+
+      expect(conn.close).toHaveBeenCalledWith(4404, expect.any(String));
+    });
+
+    it(`${reason} 뒤 은퇴한 룸은 이후 편집을 저장하지 않는다`, async () => {
+      const room = await newRoom();
+      const conn = makeConnection(21);
+      room.connections = [conn];
+
+      await room.onStart();
+      await room.onMessage(conn, editUpdate(stored, 21));
+      saveResponse = { ok: false, status: 409, body: { reason } };
+      generationMovedOn();
+      await room.onSave();                                    // 거부 → 은퇴
+      const rejected = saveCalls.length;
+
+      saveResponse = { ok: true, status: 200, body: { ok: true, revision: 7, docGeneration: 1, writeEpoch: 1 } };
+      await room.onMessage(conn, editUpdate(stored, 21));
+      await room.onSave();
+
+      expect(saveCalls.length).toBe(rejected);
+    });
+  }
 });

@@ -10,8 +10,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import * as Y from 'yjs';
 import YProvider from 'y-partyserver/provider';
 import {
-  reconnectCeilingMs, shouldNoticeDisconnect,
-  DISCONNECT_NOTICE_AFTER_MS, DISCONNECTED_NOTICE
+  reconnectCeilingMs, shouldNoticeDisconnect, roomDrifted,
+  DISCONNECT_NOTICE_AFTER_MS, DISCONNECTED_NOTICE, RESTORED_NOTICE
 } from '@/lib/realtime/reconnectPolicy';
 import { applyLocalEdit } from './useSharedDoc';
 
@@ -101,6 +101,8 @@ export function useBriefRealtime(
     let tokenFailures = 0;
     /** 서버 문서를 한 번이라도 받아 실시간으로 편집하고 있었는가 */
     let wasLive = false;
+    /** 편집을 멈추고 새로고침을 안내한 뒤인가 — 그 뒤의 끊김 안내가 이 안내를 덮으면 안 된다 */
+    let held = false;
 
     /**
      * 실시간으로 편집하던 중에 연결이 끊긴 경우.
@@ -112,6 +114,7 @@ export function useBriefRealtime(
      */
     const holdDisconnected = (reason: string) => {
       if (disposed) return;
+      held = true;
       provider?.disconnect();   // 토큰 없이 붙는 401 재접속 루프를 끊는다
       setState(s => ({
         ...s,
@@ -178,6 +181,11 @@ export function useBriefRealtime(
             return {};
           }
           tokenFailures = 0;
+          // 세대가 올라 이 룸은 은퇴했다. 같은 룸으로 계속 두드리면 403 만 돈다.
+          if (roomDrifted(first.room, t.room)) {
+            holdDisconnected(RESTORED_NOTICE);
+            return {};
+          }
           return { token: t.token };
         },
         // 주간보고와 같은 이유로 재접속 상한을 올리고 클라이언트마다 다르게 준다
@@ -241,7 +249,7 @@ export function useBriefRealtime(
           return;
         }
         if (disconnectedSince == null) disconnectedSince = Date.now();
-        if (!noticeTimer) {
+        if (!noticeTimer && !held) {
           noticeTimer = setTimeout(() => {
             noticeTimer = null;
             if (shouldNoticeDisconnect({ connected: false, disconnectedSince, now: Date.now() })) {
@@ -298,7 +306,8 @@ export function useBriefRealtime(
             applyPermission({ locked: !!m.locked });
             break;
           case 'generation-changed':
-            patch({ notice: '문서가 복원되었습니다. 새로고침해주세요.' });
+            // 서버가 곧 4404 로 끊는다. 같은 룸으로 재접속하면 403 루프라 여기서 멈춘다.
+            holdDisconnected(RESTORED_NOTICE);
             break;
           case 'stale-room':
             // 이 룸이 들고 있는 문서가 DB 에서 교체·삭제됐다. 그대로 두면 저장이 계속 거부된다.

@@ -47,3 +47,19 @@ export function shouldNoticeDisconnect(
   if (o.disconnectedSince == null) return false;
   return o.now - o.disconnectedSince >= DISCONNECT_NOTICE_AFTER_MS;
 }
+
+/** 세대가 올라 이 룸이 은퇴했을 때 보여줄 문구 — 새로고침해야 새 룸으로 붙는다 */
+export const RESTORED_NOTICE = '문서가 복원되었습니다. 새로고침해주세요.';
+
+/**
+ * 재접속 때 받은 토큰이 다른 룸을 가리키는가.
+ *
+ * 룸 이름에는 문서 세대가 박혀 있다(…-g3). 취합본 저장·복원으로 세대가 오르면 서버는 새 룸
+ * 이름을 주지만, provider 는 처음 만든 룸 이름으로만 재접속한다 — 새 토큰 + 구룸 조합은
+ * Worker 선인증에서 403 으로 끝나 20~40초마다 헛도는 루프가 된다. 룸이 바뀌었으면 멈추고
+ * 새로고침을 안내해야 한다.
+ */
+export function roomDrifted(currentRoom: string, tokenRoom: string | undefined): boolean {
+  if (!tokenRoom) return false;
+  return tokenRoom !== currentRoom;
+}

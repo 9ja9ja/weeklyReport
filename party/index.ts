@@ -136,6 +136,17 @@ export class WeeklyRoom extends YServer<Env> {
   async onLoad(): Promise<Y.Doc | void> {
     const res = await this.callNext('/api/realtime/doc', { room: this.name });
     if (!res.ok) {
+      // DB 가 이 룸보다 새 세대를 갖고 있다 — 취합본 저장·복원으로 이 룸은 은퇴했다.
+      // 장애가 아니므로 알리지 않는다. 대신 남은 접속자를 여기서 새 룸으로 보낸다:
+      // partyserver 는 어떤 요청(generation 제어 POST 포함)이든 onLoad 를 먼저 돌리므로,
+      // 여기서 내보내지 않으면 콜드 룸의 접속자는 kick 을 영영 받지 못한다(2026-09-04 알림 8건).
+      const newer = this.newerGeneration(res);
+      if (newer !== null) {
+        console.warn('[onLoad] 구세대 룸 은퇴', JSON.stringify({ room: this.name, docGeneration: newer }));
+        this.retire(newer);
+        // 여전히 문서를 열지 않는다 — 던져야 y-partyserver 가 빈 문서에 리스너를 걸지 않는다.
+        throw new Error(`구세대 룸: DB 세대 ${newer}`);
+      }
       // 여기서 던지면 partyserver 가 잡아 소켓을 1011 로 닫는다 —
       // Cloudflare 지표에는 예외가 아니라 '연결 끊김'으로만 남아 원인을 알 수 없다.
       // 실패한 상태코드와 사유를 반드시 남겨야 지나간 장애를 되짚을 수 있다.
@@ -268,8 +279,9 @@ export class WeeklyRoom extends YServer<Env> {
         this.broadcastControl({ type: 'save-rejected', reason: reasonCode });
         if (reasonCode === 'locked') this.locked = true;
         // 룸의 fencing 값이 DB 와 어긋났다. 다시 맞춰두지 않으면 이 DO 가 살아있는 내내
-        // 모든 저장이 거부된다(콜드스타트 전까지 회복 불가).
-        if (reasonCode === 'epoch-mismatch' || reasonCode === 'locked') await this.resync();
+        // 모든 저장이 거부된다(콜드스타트 전까지 회복 불가). 세대가 올라간 거라면 resync 가
+        // 이 룸을 은퇴시킨다 — generation 명령이 못 닿은 warm 룸이 옛 문서를 계속 방송하지 않도록.
+        await this.resync();
         return false;
       }
       lastError = `${res.status} ${reasonCode ?? ''}`;
@@ -433,8 +445,7 @@ export class WeeklyRoom extends YServer<Env> {
 
       case 'generation':
         // 복원됐다 — 이 룸은 구세대다. 모두 끊어 새 룸으로 옮기게 한다.
-        this.broadcastControl({ type: 'generation-changed', docGeneration: cmd.docGeneration ?? null });
-        for (const c of this.getConnections<ConnState>()) c.close(4404, '문서가 복원되었습니다. 다시 접속해주세요.');
+        this.retire(cmd.docGeneration ?? null);
         return Response.json({ ok: true });
 
       case 'revoke': {
@@ -465,9 +476,36 @@ export class WeeklyRoom extends YServer<Env> {
     } catch { /* 알림 실패는 무시한다 */ }
   }
 
+  /**
+   * 이 룸은 구세대다. 남은 접속자를 새 룸으로 보내고, 이 인스턴스는 더 이상 저장하지 않는다.
+   * 콜드 깨어남(onLoad)·warm 상태의 뒤늦은 발견(resync)·generation 제어 명령이 모두 여기로 온다.
+   */
+  private retire(docGeneration: number | null) {
+    this.loaded = false;
+    this.broadcastControl({ type: 'generation-changed', docGeneration });
+    for (const c of this.getConnections<ConnState>()) c.close(4404, '문서가 복원되었습니다. 다시 접속해주세요.');
+  }
+
+  /**
+   * DB 가 이 룸보다 새 세대를 갖고 있으면 그 세대, 아니면 null.
+   * 세대가 오히려 낮은 409 는 문서가 지워졌다 다시 만들어진 이상 상황이라 은퇴가 아니다.
+   */
+  private newerGeneration(res: { status: number; data: unknown }): number | null {
+    if (res.status !== 409) return null;
+    const gen = (res.data as { docGeneration?: unknown } | null)?.docGeneration;
+    const mine = this.roomKey?.gen;
+    return typeof gen === 'number' && typeof mine === 'number' && gen > mine ? gen : null;
+  }
+
   /** DB 의 현재 세대·잠금 상태를 다시 읽어 룸 상태를 맞춘다 */
   private async resync(): Promise<void> {
     const res = await this.callNext('/api/realtime/doc', { room: this.name });
+    const newer = this.newerGeneration(res);
+    if (newer !== null) {
+      console.warn('[resync] 구세대 룸 은퇴', JSON.stringify({ room: this.name, docGeneration: newer }));
+      this.retire(newer);
+      return;
+    }
     if (!res.ok) return;
     const data = res.data as { docGeneration: number; writeEpoch: number; revision: number; isLocked: boolean };
     this.docGeneration = data.docGeneration;

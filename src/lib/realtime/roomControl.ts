@@ -97,6 +97,9 @@ export async function unfreezeRoom(room: string): Promise<RoomCallResult> {
 /**
  * 문서가 치환됐다(복원·취합본 반영). 그 룸은 구세대이므로 접속자를 끊어 새 룸으로 옮긴다.
  * 알리지 않으면 접속자는 옛 내용을 계속 보고, 재접속 전까지 화면이 진실원본과 어긋난다.
+ *
+ * 구세대 룸이 메모리에 없으면(콜드) Worker 는 onLoad 에서 은퇴 처리(접속자 4404)를 끝내고
+ * 500 을 돌려준다 — 그 500 은 정상이다. 실패로 다루면 안 된다.
  */
 export async function announceGeneration(room: string, docGeneration: number): Promise<RoomCallResult> {
   return sendRoomCommand(room, { type: 'generation', docGeneration });
