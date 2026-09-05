@@ -21,7 +21,7 @@ export default function Navigation() {
   return (
     <nav className="nav-bar">
       <div className="nav-brand">
-        <Link href={userId ? '/dashboard' : '/'}>팀 주간보고</Link>
+        <Link href={userId ? '/dashboard' : '/'}>비즈니스플랫폼본부 주간보고 시스템</Link>
       </div>
       {userId && (
         <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="메뉴">

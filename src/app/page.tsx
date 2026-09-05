@@ -138,7 +138,7 @@ export default function Home() {
           style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.78rem', padding: '0.3rem 0.8rem', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
           업데이트 노트
         </Link>
-        <h1 style={{ fontSize: '2rem', marginBottom: '0.3rem' }}>주간보고 시스템</h1>
+        <h1 style={{ fontSize: '2rem', marginBottom: '0.3rem' }}>비즈니스플랫폼본부 주간보고 시스템</h1>
         <p style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.3rem' }}>{year}년 {weekNum}주차 ({formatDateShort(getWeekRange(year, weekNum).monday)} ~ {formatDateShort(getWeekRange(year, weekNum).friday)})</p>
         <p style={{ color: 'var(--text-muted)', margin: '0 0 1.2rem' }}>이름을 클릭하여 로그인해주세요.</p>
         <div style={{ position: 'relative', maxWidth: '420px', margin: '0 auto' }}>

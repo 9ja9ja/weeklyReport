@@ -10,7 +10,7 @@ export default function ChangelogPage() {
         <div>
           <h2 style={{ margin: 0, fontSize: '1.5rem' }}>업데이트 노트</h2>
           <p style={{ margin: '0.3rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            주간보고 시스템의 변경 이력입니다.
+            비즈니스플랫폼본부 주간보고 시스템의 변경 이력입니다.
           </p>
         </div>
         <Link href="/" className="btn" style={{ padding: '0.4rem 1.1rem', border: '1px solid var(--border)' }}>

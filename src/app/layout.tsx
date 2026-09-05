@@ -4,7 +4,7 @@ import Navigation from '@/components/Navigation'
 import Providers from '@/components/Providers'
 
 export const metadata: Metadata = {
-  title: '팀 주간보고 시스템',
+  title: '비즈니스플랫폼본부 주간보고 시스템',
   description: '주간보고 작성 및 취합 웹 서비스',
 }
 
