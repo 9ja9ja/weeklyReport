@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import * as Y from 'yjs';
 import { prisma } from '@/lib/db';
 import { currentEnvironment, isCollabWeek, persistUpdate, PRODUCTION_ENV } from '@/lib/realtime/persist';
-import { buildDocFromState, type EditorState } from '@/lib/realtime/buildDoc';
-import { materializeToJson } from '@/lib/realtime/materialize';
+import type { EditorState } from '@/lib/realtime/buildDoc';
+import { planRestore } from '@/lib/realtime/restorePlan';
 import { roomName } from '@/lib/realtime/token';
 import { announceGeneration } from '@/lib/realtime/roomControl';
 import { summaryStage, masterCanEditSummary } from '@/lib/summaryStage';
@@ -23,6 +23,15 @@ function blockCount(state: EditorState | null): number {
 
 function safeState(json: string): EditorState | null {
   try { return json ? JSON.parse(json) as EditorState : null; } catch { return null; }
+}
+
+/** 미러(SummaryData) 갱신 — 운영에서만 부른다(미러에는 environment 구분이 없다) */
+function upsertMirror(teamId: number, year: number, weekNum: number, contents: string) {
+  return prisma.summaryData.upsert({
+    where: { teamId_year_weekNum: { teamId, year, weekNum } },
+    update: { contents, updatedAt: new Date() },
+    create: { teamId, year, weekNum, contents }
+  });
 }
 
 export async function GET(request: Request) {
@@ -203,6 +212,23 @@ export async function POST(request: Request) {
       );
     }
 
+    const plan = planRestore(state, existingContents, {
+      teamId, year, weekNum,
+      seedId: existing.seedId,
+      docGeneration: existing.docGeneration + 1,
+      isLocked: false
+    });
+
+    // 내용이 그대로면 세대를 올리지 않는다. 올리면 접속자 전원이 끊기고 구세대 룸 정리가
+    // 도는데 얻는 게 없다. 미러만 문서와 맞춘 채로 "저장됨"을 돌려준다.
+    if (plan.unchanged) {
+      const mirrored = canMirror ? await upsertMirror(teamId, year, weekNum, plan.materialized) : null;
+      return NextResponse.json({
+        success: true, id: mirrored?.id ?? null, unchanged: true,
+        revision: existing.revision, docGeneration: existing.docGeneration
+      });
+    }
+
     // 되돌릴 지점을 먼저 남긴다. 취합본 편집은 삭제·재정렬을 포함해 치환으로 들어가므로
     // 잘못 저장하면 이 스냅샷 말고는 되살릴 방법이 없다.
     await prisma.sharedDocSnapshot.create({
@@ -212,20 +238,11 @@ export async function POST(request: Request) {
       }
     });
 
-    const nextGeneration = existing.docGeneration + 1;
-    const doc = buildDocFromState(state, {
-      teamId, year, weekNum,
-      seedId: existing.seedId,
-      docGeneration: nextGeneration,
-      isLocked: false
-    });
-    const materialized = materializeToJson(doc);
-
     // restore 는 병합이 아니라 치환이다 — Yjs update 는 가산적이라 기존 상태에 얹으면
     // 팀장이 지운 항목이 되살아난다.
     const saved = await persistUpdate({
       environment, teamId, year, weekNum,
-      update: Y.encodeStateAsUpdate(doc),
+      update: Y.encodeStateAsUpdate(plan.doc),
       requestId: crypto.randomUUID(),
       op: 'restore'
     });
@@ -238,13 +255,7 @@ export async function POST(request: Request) {
 
     // 미러는 문서와 같은 내용으로 맞춘다. persistUpdate 의 미러와 같은 값이라 중복은 무해하고,
     // 같은 이유(미러에 environment 가 없다)로 운영에서만 쓴다.
-    const result = canMirror
-      ? await prisma.summaryData.upsert({
-          where: { teamId_year_weekNum: { teamId, year, weekNum } },
-          update: { contents: materialized, updatedAt: new Date() },
-          create: { teamId, year, weekNum, contents: materialized }
-        })
-      : null;
+    const result = canMirror ? await upsertMirror(teamId, year, weekNum, plan.materialized) : null;
 
     // 구세대 룸에 남아있는 접속자를 끊어 새 내용으로 다시 붙게 한다.
     await announceGeneration(

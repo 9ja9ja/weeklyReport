@@ -51,3 +51,43 @@ export function membersCanWrite(lock: StageFlags | null | undefined): boolean {
 export function masterCanEditSummary(lock: StageFlags | null | undefined, collab: boolean): boolean {
   return canMasterEditAt(summaryStage(lock), collab);
 }
+
+/** SummaryLock 에 적는 단계 필드 */
+export interface StageRecord {
+  isLocked: boolean;
+  lockedBy: number | null;
+  lockedAt: Date | null;
+  isClosed: boolean;
+  closedBy: number | null;
+  closedAt: Date | null;
+}
+
+export interface StageRecordCurrent {
+  isClosed: boolean;
+  closedBy: number | null;
+  closedAt: Date | null;
+}
+
+/**
+ * 단계 전환 시 잠금 레코드에 적을 값.
+ *
+ * 취합완료는 작성마감을 지나온 상태라 isClosed 를 함께 세운다(풀었을 때 작성중으로 튀지 않게).
+ * 이때 **작성마감 시각·마감자는 덮어쓰지 않는다** — 그 값은 팀원 입력이 언제 멈췄나의 유일한
+ * 기록이고, 지금 시각으로 바꾸면 작성마감과 취합완료가 같은 시각이 되어 사후에 구분할 수 없다.
+ */
+export function stageTransition(
+  stage: SummaryStage, collab: boolean, actor: number, now: Date,
+  current: StageRecordCurrent | null | undefined
+): StageRecord {
+  const isLocked = stage === 'locked';
+  const isClosed = collab && stage !== 'open';
+  const keepClosed = isClosed && current?.isClosed === true;
+  return {
+    isLocked,
+    lockedBy: isLocked ? actor : null,
+    lockedAt: isLocked ? now : null,
+    isClosed,
+    closedBy: isClosed ? (keepClosed ? current.closedBy ?? actor : actor) : null,
+    closedAt: isClosed ? (keepClosed ? current.closedAt ?? now : now) : null
+  };
+}

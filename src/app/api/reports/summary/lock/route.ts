@@ -4,7 +4,7 @@ import { requireTeamMaster, currentUserId, unauthorized } from '@/lib/auth';
 import { currentEnvironment, isCollabWeek } from '@/lib/realtime/persist';
 import { roomName } from '@/lib/realtime/token';
 import { freezeRoomForLock, announceLocked, announceUnlocked, unfreezeRoom } from '@/lib/realtime/roomControl';
-import { summaryStage, membersCanWrite, STAGE_LABEL, type SummaryStage } from '@/lib/summaryStage';
+import { summaryStage, membersCanWrite, stageTransition, STAGE_LABEL, type SummaryStage } from '@/lib/summaryStage';
 
 export async function GET(request: Request) {
     const me = await currentUserId();
@@ -95,21 +95,15 @@ export async function POST(request: Request) {
 
     const current = await prisma.summaryLock.findUnique({
       where: { teamId_year_weekNum: { teamId, year, weekNum } },
-      select: { isLocked: true, isClosed: true }
+      select: { isLocked: true, isClosed: true, closedBy: true, closedAt: true }
     });
 
     const target = resolveTarget(body, collab, current);
     if (!target.ok) return NextResponse.json({ error: target.error }, { status: 400 });
     const stage = target.stage;
 
-    const isLocked = stage === 'locked';
-    // 취합완료는 작성마감을 지나온 상태다. 풀었을 때 작성중으로 튀지 않게 함께 세운다.
-    const isClosed = collab && stage !== 'open';
-    const now = new Date();
-    const data = {
-      isLocked, lockedBy: isLocked ? me : null, lockedAt: isLocked ? now : null,
-      isClosed, closedBy: isClosed ? me : null, closedAt: isClosed ? now : null
-    };
+    // 값 규칙(취합완료 때 작성마감 시각 보존 등)은 summaryStage 한 곳에 있다.
+    const data = stageTransition(stage, collab, me, new Date(), current);
 
     // 공동 편집 주차가 아니면 룸이 없다 — 기존 동작 그대로 (개인 Report 모드)
     if (!collab) {
@@ -133,7 +127,7 @@ export async function POST(request: Request) {
     const room = doc ? roomName(environment, teamId, year, weekNum, doc.docGeneration) : null;
 
     // 쓸 수 있던 주차를 닫을 때만 얼린다. 마지막 편집을 확정본에 담아야 하기 때문이다.
-    const closingWrites = membersCanWrite(current) && !membersCanWrite({ isLocked, isClosed });
+    const closingWrites = membersCanWrite(current) && !membersCanWrite(data);
 
     let froze = false;
     if (closingWrites && room) {
