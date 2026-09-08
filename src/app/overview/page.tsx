@@ -366,7 +366,7 @@ export default function OverviewPage() {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.3rem' }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.84rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: '0.84rem' }}>{t.name}</span>
                     <span style={{ color, fontWeight: 700, fontSize: '0.68rem', whiteSpace: 'nowrap' }}>
                       {state === 'locked' ? '\u{1F512}' : state === 'writing' ? '✎' : '○'} {label}
                     </span>
