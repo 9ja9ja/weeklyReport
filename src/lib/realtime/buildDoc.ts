@@ -83,6 +83,8 @@ function buildTableBlock(b: Extract<ContentBlock, { type: 'table' }>, order: str
     const cm = new Y.Map();
     cm.set(BLOCK.order, colKeys[i]);
     cm.set(BLOCK.header, h ?? '');
+    const align = b.aligns?.[i];
+    if (align) cm.set('align', align);
     cols.set(colIds[i], cm);
   });
   m.set(BLOCK.cols, cols);

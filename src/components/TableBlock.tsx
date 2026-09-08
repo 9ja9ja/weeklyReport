@@ -16,6 +16,7 @@ import {
   removeRow,
   addColumn,
   removeColumn,
+  setColumnAlign,
   mergeCells,
   unmergeCells,
   mergeAt,
@@ -25,6 +26,7 @@ import {
   clipboardForTablePaste,
   isEditingTableCopy,
   HEADER_ROW,
+  type CellAlign,
   type CellMerge,
   type PasteSpot,
   isNumericCell,
@@ -176,12 +178,18 @@ function LineInput({
 }
 
 /** 숫자 셀(증감 기호·괄호 음수 포함)은 우측 정렬 + 색상, 값 없음(-)은 가운데, 텍스트는 좌측 */
-function cellStyle(v: string): React.CSSProperties {
-  if (!v.trim()) return {};
-  if (isPlaceholderCell(v)) return { textAlign: 'center', color: 'var(--text-muted)' };
-  if (!isNumericCell(v)) return { textAlign: 'left' };
-  const color = numericCellColor(v);
-  return { textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...(color ? { color, fontWeight: 700 } : {}) };
+function cellStyle(v: string, manualAlign?: CellAlign | null): React.CSSProperties {
+  const autoAlign = !v.trim() ? undefined
+    : isPlaceholderCell(v) ? 'center' as const
+    : isNumericCell(v) ? 'right' as const
+    : 'left' as const;
+  const textAlign = manualAlign ?? autoAlign;
+  if (isPlaceholderCell(v)) return { textAlign, color: 'var(--text-muted)' };
+  if (isNumericCell(v)) {
+    const color = numericCellColor(v);
+    return { textAlign, fontVariantNumeric: 'tabular-nums', ...(color ? { color, fontWeight: 700 } : {}) };
+  }
+  return textAlign ? { textAlign } : {};
 }
 
 /**
@@ -225,6 +233,8 @@ export interface TableOps {
   unmerge(r: number, c: number): void;
   /** 표 붙여넣기 — 내용을 통째로 갈아엎는다 */
   replaceAll(headers: string[], rows: string[][], merges?: CellMerge[]): void;
+  /** 열 정렬 설정. null 이면 자동으로 되돌린다 */
+  setAlign(c: number, align: CellAlign | null): void;
 }
 
 interface EditorProps {
@@ -278,7 +288,8 @@ export function TableBlockEditor({
     merge: (r1, c1, r2, c2) => onChange(mergeCells(block, r1, c1, r2, c2)),
     unmerge: (r, c) => onChange(unmergeCells(block, r, c)),
     replaceAll: (headers, rows, merges) =>
-      onChange({ ...block, headers, rows, merges: merges?.length ? merges : undefined })
+      onChange({ ...block, headers, rows, merges: merges?.length ? merges : undefined }),
+    setAlign: (c, align) => onChange(setColumnAlign(block, c, align))
   };
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
@@ -511,7 +522,7 @@ export function TableBlockEditor({
                           focusAt(PART.cell(r, c))?.onFocus();
                         }}
                         onBlur={() => focusAt(PART.cell(r, c))?.onBlur()}
-                        styleOf={cellStyle}
+                        styleOf={sv => cellStyle(sv, block.aligns?.[c])}
                       />
                     </td>
                   );
@@ -574,6 +585,41 @@ export function TableBlockEditor({
         >
           병합 해제
         </button>
+        {/* ── 열 정렬 버튼 ── */}
+        {(() => {
+          const selCol = sel?.c1;
+          const hasCol = selCol != null && selCol >= 0 && selCol < block.headers.length;
+          const curAlign = hasCol ? (block.aligns?.[selCol!] ?? null) : null;
+          const alignBtn = (align: CellAlign | null, label: string, title: string) => (
+            <button
+              key={label}
+              onClick={() => hasCol && op.setAlign(selCol!, align)}
+              disabled={!hasCol}
+              className="btn"
+              title={title}
+              style={{
+                fontSize: '0.7rem',
+                padding: '0.15rem 0.35rem',
+                opacity: hasCol ? 1 : 0.45,
+                fontWeight: curAlign === align ? 800 : 400,
+                color: curAlign === align ? 'var(--primary)' : undefined,
+                borderColor: curAlign === align ? 'var(--primary)' : undefined
+              }}
+            >
+              {label}
+            </button>
+          );
+          return (
+            <>
+              <span style={{ width: '1px', height: '1rem', background: 'var(--border)', margin: '0 0.1rem' }} />
+              {alignBtn('left', '좌', '선택 열 좌측 정렬')}
+              {alignBtn('center', '중', '선택 열 가운데 정렬')}
+              {alignBtn('right', '우', '선택 열 우측 정렬')}
+              {alignBtn(null, '자동', '선택 열 자동 정렬 (숫자→우측, 텍스트→좌측)')}
+            </>
+          );
+        })()}
+        <span style={{ width: '1px', height: '1rem', background: 'var(--border)', margin: '0 0.1rem' }} />
         <button
           onClick={() => { setPasteText(''); setPasteOpen(v => !v); }}
           className="btn"
@@ -583,6 +629,7 @@ export function TableBlockEditor({
         </button>
         <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
           셀 안에서 Enter 로 줄바꿈 · 셀 클릭 후 Shift+클릭으로 범위를 잡아 병합(제목줄끼리도 가능) ·
+          셀 클릭 후 좌/중/우 버튼으로 열 정렬 변경 ·
           구글 독스·엑셀 표를 복사해 셀에 Ctrl+V 하면 제목줄의 병합까지 그대로 들어옵니다.
         </span>
       </div>
@@ -689,7 +736,7 @@ export function TableBlockView({ block, showAuthor = true }: { block: TableBlock
                         textAlign: 'center',
                         whiteSpace: 'pre',
                         verticalAlign: 'middle',
-                        ...cellStyle(v)
+                        ...cellStyle(v, block.aligns?.[c])
                       }}
                     >
                       {renderCellContent(v)}

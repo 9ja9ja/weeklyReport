@@ -709,4 +709,26 @@ export function colIds(block: Y.Map<unknown>): string[] {
   return sortedEntries(block.get(BLOCK.cols) as Y.Map<unknown> | undefined).map(([id]) => id);
 }
 
+/** 열 정렬 설정. null 이면 해당 열의 align 키를 지워 자동으로 되돌린다 */
+export function setColumnAlign(
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string,
+  c: number, align: string | null, origin?: unknown
+): void {
+  const sm = readSideMap(doc, catId, side);
+  if (!sm) return;
+  doc.transact(() => {
+    const b = sm.get(blockId);
+    if (!(b instanceof Y.Map)) return;
+    const cols = b.get(BLOCK.cols);
+    if (!(cols instanceof Y.Map)) return;
+    const cids = colIds(b);
+    const cid = cids[c];
+    if (!cid) return;
+    const cm = cols.get(cid);
+    if (!(cm instanceof Y.Map)) return;
+    if (align) cm.set('align', align);
+    else cm.delete('align');
+  }, origin);
+}
+
 export { compareOrdered };

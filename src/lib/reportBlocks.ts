@@ -32,6 +32,9 @@ export type CellMerge = { r: number; c: number; rowSpan: number; colSpan: number
 export const HEADER_ROW = -1;
 
 /** 문서의 통계표 (문의 대응 추이표, 운영 실적표, 진행 경과표 등) */
+/** 열 정렬. undefined 이면 자동(숫자 → 우측, 텍스트 → 좌측) */
+export type CellAlign = 'left' | 'center' | 'right';
+
 export type TableBlock = {
   id: string;
   type: 'table';
@@ -42,6 +45,8 @@ export type TableBlock = {
   authorText?: string;
   /** 없으면 병합 없음. 기존 데이터에는 이 필드가 없다 */
   merges?: CellMerge[];
+  /** 열별 수동 정렬. 없거나 해당 인덱스가 비면 자동 정렬 */
+  aligns?: (CellAlign | null)[];
 };
 
 export type ContentBlock = SubBlock | TableBlock;
@@ -104,22 +109,37 @@ export function removeRow(t: TableBlock, r: number): TableBlock {
 
 export function addColumn(t: TableBlock, at?: number): TableBlock {
   const idx = at === undefined ? t.headers.length : Math.max(0, Math.min(at, t.headers.length));
+  const aligns = t.aligns ? [...t.aligns.slice(0, idx), null, ...t.aligns.slice(idx)] : undefined;
   return {
     ...t,
     headers: [...t.headers.slice(0, idx), '', ...t.headers.slice(idx)],
     rows: t.rows.map(row => [...row.slice(0, idx), '', ...row.slice(idx)]),
-    merges: shiftMerges(t.merges, 'col', 'insert', idx)
+    merges: shiftMerges(t.merges, 'col', 'insert', idx),
+    ...(aligns ? { aligns } : {})
   };
 }
 
 export function removeColumn(t: TableBlock, c: number): TableBlock {
   if (t.headers.length <= 1) return t;
+  const aligns = t.aligns ? t.aligns.filter((_, i) => i !== c) : undefined;
   return {
     ...t,
     headers: t.headers.filter((_, i) => i !== c),
     rows: t.rows.map(row => row.filter((_, i) => i !== c)),
-    merges: shiftMerges(t.merges, 'col', 'remove', c)
+    merges: shiftMerges(t.merges, 'col', 'remove', c),
+    ...(aligns ? { aligns } : {})
   };
+}
+
+/** 열 정렬 설정. null 이면 자동으로 되돌린다 */
+export function setColumnAlign(t: TableBlock, c: number, align: CellAlign | null): TableBlock {
+  const aligns = t.aligns ? [...t.aligns] : new Array<CellAlign | null>(t.headers.length).fill(null);
+  // 열 수와 길이 맞추기
+  while (aligns.length < t.headers.length) aligns.push(null);
+  aligns[c] = align;
+  // 전부 null 이면 필드 자체를 없앤다
+  const hasAny = aligns.some(a => a != null);
+  return { ...t, aligns: hasAny ? aligns : undefined };
 }
 
 // ── 셀 병합 ──────────────────────────────────────────────────
@@ -583,27 +603,33 @@ export function tableToHtml(t: TableBlock): string {
       ? ''
       : `<td style="${th}"${spanAttrs(t, HEADER_ROW, c)}>${cellHtml(h)}</td>`))
     .join('');
+  /** 수동 정렬이 있으면 그것을, 없으면 자동 판정 */
+  const alignOf = (c: number, v: string): string => {
+    const manual = t.aligns?.[c];
+    if (manual) return manual;
+    if (!v.trim()) return 'left';
+    if (isPlaceholderCell(v)) return 'center';
+    return isNumericCell(v) ? 'right' : 'left';
+  };
   const body = t.rows
     .map((row, r) => {
       const tds = row
         .map((v, c) => {
           if (isCovered(t, r, c)) return '';   // 다른 칸이 덮고 있다
           const attrs = spanAttrs(t, r, c);
-          if (!v.trim()) return `<td style="${cell}text-align:left;"${attrs}>${cellHtml(v)}</td>`;
-          // 값 없음(-)은 숫자 열의 자릿수를 흐트러뜨리지 않도록 가운데 정렬
-          if (isPlaceholderCell(v)) return `<td style="${cell}text-align:center;"${attrs}>${cellHtml(v)}</td>`;
-          if (!isNumericCell(v)) return `<td style="${cell}text-align:left;"${attrs}>${cellHtml(v)}</td>`;
+          const align = alignOf(c, v);
           // "값(증감)" 은 값은 무채색으로 두고 증감(부호+숫자)만 색을 입힌다
-          const parts = coloredDeltaParts(v);
+          const parts = isNumericCell(v) ? coloredDeltaParts(v) : null;
           if (parts) {
             const deltaHtml = parts.color
               ? `<span style="color:${parts.color};font-weight:bold;">${cellHtml(parts.delta)}</span>`
               : cellHtml(parts.delta);
-            return `<td style="${cell}text-align:right;"${attrs}>${cellHtml(parts.prefix)}${deltaHtml}${cellHtml(parts.suffix)}</td>`;
+            return `<td style="${cell}text-align:${align};"${attrs}>${cellHtml(parts.prefix)}${deltaHtml}${cellHtml(parts.suffix)}</td>`;
           }
-          const color = numericCellColor(v);
-          const style = `${cell}text-align:right;${color ? `color:${color};font-weight:bold;` : ''}`;
-          return `<td style="${style}"${attrs}>${cellHtml(formatNumericCell(v))}</td>`;
+          const color = isNumericCell(v) ? numericCellColor(v) : null;
+          const style = `${cell}text-align:${align};${color ? `color:${color};font-weight:bold;` : ''}`;
+          const content = isNumericCell(v) ? formatNumericCell(v) : v;
+          return `<td style="${style}"${attrs}>${cellHtml(content)}</td>`;
         })
         .join('');
       return `<tr>${tds}</tr>`;

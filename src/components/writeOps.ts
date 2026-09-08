@@ -8,12 +8,13 @@
  */
 import * as Y from 'yjs';
 import {
-  type ContentBlock, type TableBlock, type SubBlock,
+  type ContentBlock, type TableBlock, type SubBlock, type CellAlign,
   createSubBlock, createTableBlock, generateId, isTableBlock,
   setCell as setCellLocal, setHeader as setHeaderLocal,
   addRow as addRowLocal, removeRow as removeRowLocal,
   addColumn as addColumnLocal, removeColumn as removeColumnLocal,
-  mergeCells as mergeCellsLocal, unmergeCells as unmergeCellsLocal
+  mergeCells as mergeCellsLocal, unmergeCells as unmergeCellsLocal,
+  setColumnAlign as setColumnAlignLocal
 } from '@/lib/reportBlocks';
 import type { TableOps } from '@/components/TableBlock';
 import type { Side } from '@/lib/realtime/schema';
@@ -154,7 +155,8 @@ export function localWriteOps(setState: SetState, readOnly: boolean): WriteOps {
       merge: (r1, c1, r2, c2) => updateTable(catId, side, blockId, t => mergeCellsLocal(t, r1, c1, r2, c2)),
       unmerge: (r, c) => updateTable(catId, side, blockId, t => unmergeCellsLocal(t, r, c)),
       replaceAll: (headers, rows, merges) =>
-        updateTable(catId, side, blockId, t => ({ ...t, headers, rows, merges: merges?.length ? merges : undefined }))
+        updateTable(catId, side, blockId, t => ({ ...t, headers, rows, merges: merges?.length ? merges : undefined })),
+      setAlign: (c, align) => updateTable(catId, side, blockId, t => setColumnAlignLocal(t, c, align))
     }),
     subText: () => null,
     bulletText: () => null,
@@ -282,6 +284,10 @@ export function sharedWriteOps(
       replaceAll: (headers, rows, merges) => {
         if (readOnly) return;
         ops.replaceTableContent(doc, catId, side, blockId, headers, rows, origin, merges);
+      },
+      setAlign: (c, align) => {
+        if (readOnly) return;
+        ops.setColumnAlign(doc, catId, side, blockId, c, align, origin);
       }
       };
     },

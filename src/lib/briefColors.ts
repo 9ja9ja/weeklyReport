@@ -50,15 +50,22 @@ function isGrayish(c: [number, number, number]): boolean {
  * 그래서 **무채색인지**를 먼저 보고, 회색 계열 중 한쪽 테마에서 사라질 만큼
  * 어둡거나 밝은 것만 걷어낸다. 색이 있는 값은 아무리 어두워도 의도한 강조로 본다.
  *
- * 배경색은 다른 잣대를 쓴다. 표 머리의 연회색(rgb(242,242,242), 명도 0.949)이나 파스텔 강조는
- * 회색·고명도라도 **일부러 칠한 것**이라, 사실상 흰색·검정인 경우만 지운다.
+ * 배경색도 무채색 검사를 쓴다. 순수 무채색(채널 차 ≤ 10) 고명도(> 0.85) 배경은
+ * 표 헤더 기본색(#f2f2f2 등)이라 다크모드에서 밝은 블록이 뜬다 — 테마 흔적으로 제거한다.
+ * 약간의 색조가 있는 배경(#e9f0f6 등)이나 파스텔 강조색(#fef08a 등)은 의도적이라 남긴다.
  */
 export function isThemeArtifactColor(raw: string, isBackground: boolean): boolean {
   const c = parseColor(raw);
   if (!c) return false;
   const l = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
-  if (isBackground) return l > 0.97 || l < 0.04;
-  return isGrayish(c) && (l < 0.4 || l > 0.78);
+  if (isBackground) {
+    // 사실상 흰색·검정
+    if (l > 0.97 || l < 0.04) return true;
+    // 순수 무채색 고명도 배경 — 상세본 tableToHtml()의 #f2f2f2 등
+    const spread = Math.max(...c) - Math.min(...c);
+    return spread <= 10 && l > 0.85;
+  }
+  return isGrayish(c) && (l < 0.5 || l > 0.78);
 }
 
 /**

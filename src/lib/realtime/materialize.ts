@@ -109,6 +109,11 @@ function materializeTable(id: string, b: Y.Map<unknown>): TableBlock & { authorI
   const cellMap = cells instanceof Y.Map ? cells : null;
 
   const headers = colEntries.map(([, cm]) => String(cm.get(BLOCK.header) ?? ''));
+  const aligns = colEntries.map(([, cm]) => {
+    const a = cm.get('align');
+    return (a === 'left' || a === 'center' || a === 'right') ? a : null;
+  });
+  const hasAligns = aligns.some(a => a != null);
   const rows = rowEntries.map(([rid]) =>
     colEntries.map(([cid]) => {
       const v = cellMap?.get(cellKey(rid, cid));
@@ -125,6 +130,7 @@ function materializeTable(id: string, b: Y.Map<unknown>): TableBlock & { authorI
     headers,
     rows,
     ...(merges ? { merges } : {}),
+    ...(hasAligns ? { aligns } : {}),
     authorText: String(b.get(BLOCK.authorText) ?? ''),
     authorId: typeof authorId === 'number' ? authorId : null
   };

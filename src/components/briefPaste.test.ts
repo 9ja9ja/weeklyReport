@@ -82,14 +82,28 @@ describe('실제 문서에서 온 색 판정', () => {
 
   it('한쪽 테마에서 사라지는 밝은 회색 글자도 걷어낸다', () => {
     expect(isThemeArtifactColor('#e8e8e8', false)).toBe(true);
-    // 중간 회색은 어느 쪽에서도 읽히므로 그대로 둔다
+    // 중간 밝기 회색(#808080, 명도 0.50)은 양쪽에서 읽히므로 그대로 둔다
     expect(isThemeArtifactColor('#808080', false)).toBe(false);
   });
 
-  it('표 머리의 연회색 배경은 일부러 칠한 것이라 남긴다', () => {
-    expect(isThemeArtifactColor('rgb(242, 242, 242)', true)).toBe(false);
+  it('다크모드에서 안 보이는 중간 어두운 회색도 걷어낸다', () => {
+    // #666666(0.40), #737373(0.45) 등은 다크 배경에서 대비 부족
+    expect(isThemeArtifactColor('#666666', false)).toBe(true);
+    expect(isThemeArtifactColor('#737373', false)).toBe(true);
+    // 유채색은 어두워도 남긴다
+    expect(isThemeArtifactColor('#6b5b3b', false)).toBe(false);
+  });
+
+  it('순수 무채색 고명도 배경(표 헤더 #f2f2f2 등)은 테마 흔적으로 걷어낸다', () => {
+    // 순수 무채색(채널 차 ≤ 10) + 명도 > 0.85 → 다크모드에서 밝은 블록이 뜨므로 제거
+    expect(isThemeArtifactColor('rgb(242, 242, 242)', true)).toBe(true);
+    expect(isThemeArtifactColor('#f2f2f2', true)).toBe(true);
+    expect(isThemeArtifactColor('#e0e0e0', true)).toBe(true);  // 224/255 = 0.878
+    // 약간의 색조가 있는 배경은 의도적이라 남긴다 (채널 차 > 10)
     expect(isThemeArtifactColor('rgb(233, 240, 246)', true)).toBe(false);
-    // 사실상 흰색·검정만 배경에서 걷어낸다
+    // 파스텔 강조색도 남긴다
+    expect(isThemeArtifactColor('#fef08a', true)).toBe(false);
+    // 사실상 흰색·검정도 걷어낸다
     expect(isThemeArtifactColor('#ffffff', true)).toBe(true);
     expect(isThemeArtifactColor('#000000', true)).toBe(true);
   });
