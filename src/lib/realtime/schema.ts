@@ -59,6 +59,8 @@ export const BLOCK = {
   order: 'order',
   authorId: 'authorId',
   authorText: 'authorText',
+  /** 팀장이 취합본에서 이름칸을 직접 고쳤는가 — 켜지면 항목 작성자 자동 합산을 멈춘다 */
+  authorPinned: 'authorPinned',
   // sub
   subText: 'subText',
   bullets: 'bullets',

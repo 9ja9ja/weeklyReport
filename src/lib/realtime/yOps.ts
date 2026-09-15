@@ -182,7 +182,12 @@ export function setAuthorText(
 // ── 불릿 ────────────────────────────────────────────────────
 
 export function addBullet(
-  doc: Y.Doc, catId: string | number, side: Side, blockId: string, origin?: unknown
+  doc: Y.Doc, catId: string | number, side: Side, blockId: string, origin?: unknown,
+  /**
+   * 이 항목을 넣는 사람. 공동 편집에서만 넘어온다.
+   * 소분류 생성자만으로는 실제 기여자가 가려지므로 항목 단위로 남긴다.
+   */
+  author?: { authorId: number | null; authorText: string }
 ): string | null {
   // 기존 블록을 다루는 연산 — 컨테이너가 없으면 아무것도 만들지 않고 빠진다
   const sm = readSideMap(doc, catId, side);
@@ -197,6 +202,11 @@ export function addBullet(
     const bm = new Y.Map();
     bm.set(BLOCK.order, orderAtEnd(bullets));
     bm.set(BLOCK.text, ytext());
+    // 이름이 없으면 키를 만들지 않는다 — 기존 문서의 모양을 바꾸지 않기 위해
+    if (author?.authorText) {
+      bm.set(BLOCK.authorText, author.authorText);
+      bm.set(BLOCK.authorId, author.authorId);
+    }
     bullets.set(id, bm);
   }, origin);
   return id;

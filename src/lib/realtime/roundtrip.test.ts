@@ -196,3 +196,61 @@ describe('왕복 항등성 — 무작위 100건', () => {
     expect(checked).toBe(100);
   });
 });
+
+/**
+ * 항목별 작성자와 이름 고정 표시는 **반드시 왕복을 견뎌야 한다.**
+ *
+ * 공동 편집 주차의 취합본 저장(POST /api/reports/summary)은 EditorState JSON 에서
+ * Y.Doc 을 통째로 재구성한다(op:'restore'). 이 두 필드가 왕복 계약에서 빠지면
+ * 팀장이 취합본을 한 번 저장하는 순간 항목 작성자가 전원 사라진다.
+ */
+describe('작성자 표기 필드 왕복', () => {
+  it('항목별 작성자가 보존된다', () => {
+    const state: EditorState = {
+      '38': {
+        current: [{
+          id: 'a1', type: 'sub', subText: '공통', authorText: '양병석', authorId: 21,
+          bullets: [
+            { id: 'b1', text: '로그 개선', authorText: '양병석', authorId: 21 },
+            { id: 'b2', text: '엑셀 오류 안내', authorText: '김소영', authorId: 23 }
+          ]
+        } as any],
+        next: []
+      }
+    };
+    const back = roundtrip(state) as any;
+    expect(back['38'].current[0].bullets).toEqual([
+      { id: 'b1', text: '로그 개선', authorText: '양병석', authorId: 21 },
+      { id: 'b2', text: '엑셀 오류 안내', authorText: '김소영', authorId: 23 }
+    ]);
+  });
+
+  it('팀장이 고정한 이름 표시(authorPinned)가 보존된다', () => {
+    const state: EditorState = {
+      '38': {
+        current: [{
+          id: 'a1', type: 'sub', subText: '공통', authorText: '개발1파트', authorId: null,
+          authorPinned: true,
+          bullets: [{ id: 'b1', text: 'x', authorText: '양병석', authorId: 21 }]
+        } as any],
+        next: []
+      }
+    };
+    expect((roundtrip(state) as any)['38'].current[0].authorPinned).toBe(true);
+  });
+
+  it('작성자 정보가 없는 기존 문서는 그대로 왕복한다', () => {
+    const state: EditorState = {
+      '38': {
+        current: [{
+          id: 'a1', type: 'sub', subText: '공통', authorText: '양병석',
+          bullets: [{ id: 'b1', text: '로그 개선' }]
+        } as any],
+        next: []
+      }
+    };
+    const back = roundtrip(state) as any;
+    expect(back['38'].current[0].bullets[0].text).toBe('로그 개선');
+    expect(back['38'].current[0].authorPinned).toBeUndefined();
+  });
+});

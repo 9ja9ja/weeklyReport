@@ -214,7 +214,8 @@ export function sharedWriteOps(
     setAuthorText: guard((catId: number, side: Side, blockId: string, v: string) =>
       ops.setAuthorText(doc, catId, side, blockId, v, origin)),
     addBullet: guard((catId: number, side: Side, blockId: string) => {
-      ops.addBullet(doc, catId, side, blockId, origin);
+      // 소분류를 만든 사람이 아니라 이 항목을 넣은 사람을 남긴다
+      ops.addBullet(doc, catId, side, blockId, origin, author);
     }),
     removeBullet: guard((catId: number, side: Side, blockId: string, bulletId: string) =>
       ops.removeBullet(doc, catId, side, blockId, bulletId, origin)),
@@ -251,7 +252,7 @@ export function sharedWriteOps(
             const id = ops.addSubBlock(doc, catId, side, author, origin);
             ops.setSubTextValue(doc, catId, side, id, b.subText, origin);
             b.bullets.forEach(x => {
-              const bid = ops.addBullet(doc, catId, side, id, origin);
+              const bid = ops.addBullet(doc, catId, side, id, origin, author);
               if (bid) ops.setBulletTextValue(doc, catId, side, id, bid, x.text, origin);
             });
           }

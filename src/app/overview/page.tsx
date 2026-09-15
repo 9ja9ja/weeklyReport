@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
 import { getWeekRange, getNextWeek, getDefaultWeek, formatDateShort } from '@/lib/weekUtils';
-import { type ContentBlock, isTableBlock, tableToHtml, tableToText } from '@/lib/reportBlocks';
+import { type ContentBlock, isTableBlock, tableToHtml, tableToText, authorLabel } from '@/lib/reportBlocks';
 import { TableBlockView } from '@/components/TableBlock';
 
 interface OvCategory { id: number; middle: string; current: ContentBlock[]; next: ContentBlock[] }
@@ -159,7 +159,8 @@ export default function OverviewPage() {
             blocks.forEach(b => {
               if (isTableBlock(b)) { t += tableToText(b); h += tableToHtml(b); return; }
               seq += 1;
-              const auth = includeAuthor && b.authorText ? ` [${b.authorText}]` : '';
+              const lbl = authorLabel(b);
+              const auth = includeAuthor && lbl ? ` [${lbl}]` : '';
               t += `     ${marked(seq)} ${b.subText || ''}${auth}\n`;
               h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;${marked(seq)} ${b.subText || ''}${auth}</div>`;
               b.bullets.forEach(bu => {
@@ -235,8 +236,8 @@ export default function OverviewPage() {
         <div key={b.id} style={{ marginBottom: '0.35rem' }}>
           <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
             {marked(s)} {b.subText}
-            {showAuthor && b.authorText && (
-              <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{b.authorText}]</span>
+            {showAuthor && authorLabel(b) && (
+              <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{authorLabel(b)}]</span>
             )}
           </div>
           {b.bullets.map(x => (

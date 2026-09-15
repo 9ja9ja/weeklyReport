@@ -8,8 +8,7 @@ import { getNextWeek, getDefaultWeek } from '@/lib/weekUtils';
 import {
   type ContentBlock, type SubBlock, type TableBlock,
   isTableBlock, generateId, createSubBlock, createTableBlock,
-  tableToText, tableToHtml
-} from '@/lib/reportBlocks';
+  tableToText, tableToHtml, authorLabel } from '@/lib/reportBlocks';
 import { TableBlockEditor, TableBlockView } from '@/components/TableBlock';
 
 type CateData = { current: ContentBlock[]; next: ContentBlock[] };
@@ -310,7 +309,8 @@ export default function SummaryPage() {
         }
         seq += 1;
         const pf = seq < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[seq] : `(${seq + 1})`;
-        const auth = (includeAuthor && block.authorText) ? ` [${block.authorText}]` : '';
+        const lbl = authorLabel(block);
+        const auth = (includeAuthor && lbl) ? ` [${lbl}]` : '';
         t += `     ${pf} ${block.subText || ''}${auth}\n`;
         h += `<div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${pf} ${block.subText || ''}${auth}</div>`;
         block.bullets.forEach(bul => {
@@ -407,7 +407,17 @@ export default function SummaryPage() {
     });
 
   const setSubText = (c: number, t: 'current' | 'next', i: number, v: string) => updateSub(c, t, i, s => ({ ...s, subText: v }));
-  const setAuthorText = (c: number, t: 'current' | 'next', i: number, v: string) => updateState(c, t, l => { l[i] = { ...l[i], authorText: v }; return l; });
+  /**
+   * 취합본에서 이름칸을 직접 고치면 그 값으로 고정한다(authorPinned).
+   * "개발1파트" 처럼 묶어 쓰는 관행이 있어, 손댄 값이 항목 작성자 자동 합산을 이겨야 한다.
+   * 빈칸으로 지우면 이름이 숨겨진다 — 자동 계산으로 되돌아가는 것보다 예측 가능하다.
+   */
+  const setAuthorText = (c: number, t: 'current' | 'next', i: number, v: string) => updateState(c, t, l => {
+    const cur = l[i];
+    // 표는 항목 작성자 합산 대상이 아니라 고정 표시도 쓰지 않는다 (설계상 범위 밖)
+    l[i] = isTableBlock(cur) ? { ...cur, authorText: v } : { ...cur, authorText: v, authorPinned: true };
+    return l;
+  });
   const removeBlock = (c: number, t: 'current' | 'next', i: number) => updateState(c, t, l => { l.splice(i, 1); return l; });
   const reorderSub = (c: number, t: 'current' | 'next', from: number, to: number) => { if (from === to) return; updateState(c, t, l => { const n = [...l]; const [it] = n.splice(from, 1); n.splice(to, 0, it); return n; }); };
   const addSub = (c: number, t: 'current' | 'next') => updateState(c, t, l => [...l, createSubBlock()]);
@@ -452,7 +462,7 @@ export default function SummaryPage() {
         <div key={b.id} style={{ marginBottom: '0.4rem' }}>
           <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>
             {seq < 10 ? `①②③④⑤⑥⑦⑧⑨⑩`[seq] : `(${seq + 1})`} {b.subText}
-            {includeAuthor && b.authorText && <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{b.authorText}]</span>}
+            {includeAuthor && authorLabel(b) && <span style={{ color: 'var(--primary)', fontWeight: 700, marginLeft: '0.3rem' }}>[{authorLabel(b)}]</span>}
           </div>
           {b.bullets.map(bul => <div key={bul.id} style={{ paddingLeft: '2rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>- {bul.text}</div>)}
         </div>
@@ -525,7 +535,7 @@ export default function SummaryPage() {
             onInput={e => autoResize(e.target as HTMLTextAreaElement)}
             style={{ flex: 1, borderTop: 'none', borderLeft: 'none', borderRight: 'none', fontWeight: 600, resize: 'none', minHeight: '34px', overflow: 'hidden', fontSize: '0.88rem', lineHeight: '1.4' }} />
           <span style={{ color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>[</span>
-          <input value={block.authorText || ''} onChange={e => setAuthorText(catId, type, idx, e.target.value)} className="input-field"
+          <input value={authorLabel(block)} onChange={e => setAuthorText(catId, type, idx, e.target.value)} className="input-field"
             style={{ width: '60px', padding: '0.2rem 0.1rem', background: 'transparent', borderTop: 'none', borderLeft: 'none', borderRight: 'none', borderBottomColor: 'var(--primary)', color: 'var(--primary)', fontWeight: 600, textAlign: 'center', fontSize: '0.85rem' }} />
           <span style={{ color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>]</span>
           <button onClick={() => addBullet(catId, type, idx)} className="icon-btn add">+ 항목</button>

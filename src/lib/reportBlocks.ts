@@ -5,16 +5,50 @@
  * 기존 데이터는 전부 SubBlock 이고 type 필드가 없을 수 있어, 표 여부는 type === 'table' 로만 판정한다.
  */
 
-export type Bullet = { id: string; text: string };
+export type Bullet = {
+  id: string;
+  text: string;
+  /** 이 항목을 입력한 사람. 공동 편집에서만 채워진다 */
+  authorId?: number | null;
+  /** 표시용 이름 — 원저자를 보존해 이월 뒤에도 남는다 */
+  authorText?: string;
+};
 
 /** 문서의 ①②③ 항목 + 그 아래 - 불릿 */
 export type SubBlock = {
   id: string;
   type?: 'sub';
   subText: string;
+  /** 소분류 생성자, 또는 팀장이 취합본에서 지정한 값 */
   authorText?: string;
+  authorId?: number | null;
+  /**
+   * 팀장이 취합본에서 이름칸을 직접 고쳤는가.
+   * 켜지면 자동 합산을 멈추고 authorText 만 쓴다 — "개발1파트" 처럼 묶어 쓰는 관행을 살린다.
+   */
+  authorPinned?: boolean;
   bullets: Bullet[];
 };
+
+/**
+ * 소분류 옆에 표시할 작성자 이름.
+ *
+ * 생성자 한 명만 보여주면, 그 아래 항목을 다른 사람이 채워도 취합본·개요에서 드러나지 않는다.
+ * 실제로 손댄 사람을 합쳐서 보여준다.
+ *
+ * 규칙을 화면마다 따로 구현하면 같은 소분류가 화면마다 다른 이름으로 보이므로
+ * (collabStatus 가 작성 현황 판정을 한곳에 모은 것과 같은 이유) 표시하는 쪽은 전부 이 함수를 쓴다.
+ *
+ * 중복 제거 기준은 표시 이름이다. 팀 안에서 이름은 유일하고(User @@unique([teamId, name]))
+ * 한 소분류는 한 팀에 속하므로 동명이인 충돌이 없다.
+ *
+ * 이름이 하나도 없으면 빈 문자열을 돌려준다 — 호출부는 대괄호만 찍지 않도록 결과를 확인해야 한다.
+ */
+export function authorLabel(b: SubBlock): string {
+  if (b.authorPinned) return b.authorText ?? '';
+  const names = [b.authorText, ...(b.bullets ?? []).map(x => x.authorText)];
+  return [...new Set(names.filter((n): n is string => !!n))].join(', ');
+}
 
 /**
  * 병합된 셀 한 덩어리. (r, c) 가 좌상단 기준칸이고 그 오른쪽·아래가 덮인다.

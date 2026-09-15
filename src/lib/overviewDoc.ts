@@ -11,8 +11,7 @@
  */
 import {
   type ContentBlock, isTableBlock, isCovered, spanAt, HEADER_ROW,
-  isNumericCell, isPlaceholderCell, numericCellColor, formatNumericCell
-} from './reportBlocks';
+  isNumericCell, isPlaceholderCell, numericCellColor, formatNumericCell, authorLabel } from './reportBlocks';
 import { getNextWeek } from './weekUtils';
 
 export interface DocCategory { id: number; middle: string; current: ContentBlock[]; next: ContentBlock[] }
@@ -126,7 +125,9 @@ function renderBlocks(blocks: ContentBlock[], includeAuthor: boolean): string {
     .map(b => {
       if (isTableBlock(b)) return renderTable(b);
       seq += 1;
-      const author = includeAuthor && b.authorText ? ` [${esc(b.authorText)}]` : '';
+      // 소분류를 만든 사람 + 항목을 채운 사람. 규칙은 authorLabel 한 곳에 있다
+      const label = authorLabel(b);
+      const author = includeAuthor && label ? ` [${esc(label)}]` : '';
       const head = `<p style="${P}">${indent(5)}${subMark(seq)} ${esc(b.subText)}${author}</p>`;
       const bullets = b.bullets
         .map(x => `<p style="${P}">${indent(10)}- ${esc(x.text)}</p>`)
@@ -159,7 +160,12 @@ function partAuthors(part: DocPart): string[] {
   part.majors.forEach(mj =>
     mj.categories.forEach(c =>
       [...c.current, ...c.next].forEach(b => {
-        if (b.authorText) names.add(b.authorText);
+        // 표는 만든 사람만, 소분류는 항목 작성자까지 — 명단에서 빠지면 참여 현황이 실제와 어긋난다
+        if (isTableBlock(b)) {
+          if (b.authorText) names.add(b.authorText);
+          return;
+        }
+        authorLabel(b).split(', ').forEach(n => { if (n) names.add(n); });
       })
     )
   );

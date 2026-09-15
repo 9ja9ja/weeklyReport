@@ -41,15 +41,24 @@ export function readMeta(doc: Y.Doc): DocMeta {
 
 function materializeSub(id: string, b: Y.Map<unknown>): SubBlock & { authorId?: number | null } {
   const bullets = sortedEntries(b.get(BLOCK.bullets) as Y.Map<unknown> | undefined).map(
-    ([bid, bm]) => ({ id: bid, text: readText(bm.get(BLOCK.text)) })
+    ([bid, bm]) => {
+      const text = readText(bm.get(BLOCK.text));
+      const who = bm.get(BLOCK.authorText);
+      // 작성자가 없는 항목은 필드 자체를 넣지 않는다 — 기존 문서의 왕복 결과를 바꾸지 않기 위해
+      if (typeof who !== 'string' || who === '') return { id: bid, text };
+      const bid2 = bm.get(BLOCK.authorId);
+      return { id: bid, text, authorText: who, authorId: typeof bid2 === 'number' ? bid2 : null };
+    }
   );
   const authorId = b.get(BLOCK.authorId);
+  const pinned = b.get(BLOCK.authorPinned) === true;
   return {
     id,
     type: 'sub',
     subText: readText(b.get(BLOCK.subText)),
     authorText: String(b.get(BLOCK.authorText) ?? ''),
     authorId: typeof authorId === 'number' ? authorId : null,
+    ...(pinned ? { authorPinned: true } : {}),
     bullets
   };
 }

@@ -47,6 +47,8 @@ function buildSubBlock(b: Extract<ContentBlock, { type?: 'sub' }>, order: string
   m.set(BLOCK.order, order);
   m.set(BLOCK.authorId, (b as { authorId?: number | null }).authorId ?? null);
   m.set(BLOCK.authorText, b.authorText ?? '');
+  // 켜져 있을 때만 쓴다 — 기존 문서에 없던 키를 굳이 만들어 왕복 비교를 어긋나게 할 이유가 없다
+  if ((b as { authorPinned?: boolean }).authorPinned) m.set(BLOCK.authorPinned, true);
   m.set(BLOCK.subText, ytext(b.subText ?? ''));
 
   const bullets = new Y.Map();
@@ -60,6 +62,11 @@ function buildSubBlock(b: Extract<ContentBlock, { type?: 'sub' }>, order: string
     const bm = new Y.Map();
     bm.set(BLOCK.order, bkeys[i]);
     bm.set(BLOCK.text, ytext(String(bu?.text ?? '')));
+    // 항목 작성자. 없는 항목(기존 문서·개인 작성 보고서)은 키를 만들지 않는다
+    if (bu?.authorText) {
+      bm.set(BLOCK.authorText, bu.authorText);
+      bm.set(BLOCK.authorId, typeof bu.authorId === 'number' ? bu.authorId : null);
+    }
     bullets.set(bid, bm);
   });
   m.set(BLOCK.bullets, bullets);

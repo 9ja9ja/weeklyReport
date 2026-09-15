@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { resolveTestDatabaseUrl } from './testDb';
+import type { EditorState } from './buildDoc';
 
 const TEST_URL = resolveTestDatabaseUrl();
 const d = TEST_URL ? describe : describe.skip;
@@ -172,5 +173,48 @@ describe('carryOver (순수 함수)', () => {
     const { carryOver: fn } = await import('./seed');
     const got = fn({ '5': { current: [], next: [] } } as never);
     expect(got['5']).toEqual({ current: [], next: [] });
+  });
+});
+
+/**
+ * 이월 뒤에도 항목 작성자가 남아야 한다.
+ *
+ * 블록의 authorId/authorText 가 원저자를 유지하는 것과 같은 정책이다.
+ * 여기서 빠지면 매주 월요일 이월 시점에 지난주 기여자가 통째로 지워진다.
+ */
+describe('carryOver — 항목 작성자 유지', () => {
+  it('차주 항목이 금주로 넘어갈 때 항목별 작성자가 남는다', async () => {
+    const { carryOver } = await import('./seed');
+    const prev: EditorState = {
+      '38': {
+        current: [],
+        next: [{
+          id: 'a1', type: 'sub', subText: '공통', authorText: '양병석', authorId: 21,
+          bullets: [
+            { id: 'b1', text: 'QC 대응', authorText: '김소영', authorId: 23 },
+            { id: 'b2', text: '문서 정리', authorText: '이다영', authorId: 20 }
+          ]
+        }]
+      }
+    };
+    const got = carryOver(prev);
+    expect(got['38'].current[0]).toMatchObject({
+      bullets: [
+        { id: 'b1', text: 'QC 대응', authorText: '김소영', authorId: 23 },
+        { id: 'b2', text: '문서 정리', authorText: '이다영', authorId: 20 }
+      ]
+    });
+  });
+
+  it('팀장이 고정한 이름 표시도 함께 넘어간다', async () => {
+    const { carryOver } = await import('./seed');
+    const prev: EditorState = {
+      '38': {
+        current: [],
+        next: [{ id: 'a1', type: 'sub', subText: '공통', authorText: '개발1파트',
+                 authorPinned: true, bullets: [] }]
+      }
+    };
+    expect(carryOver(prev)['38'].current[0]).toMatchObject({ authorPinned: true });
   });
 });

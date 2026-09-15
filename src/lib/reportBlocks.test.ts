@@ -9,9 +9,9 @@ import {
   createTableBlock, addRow, removeRow, addColumn, removeColumn,
   mergeCells, unmergeCells, mergeAt, isCovered, spanAt, setCell,
   clipboardForTablePaste, hasHtmlTable, isEditingTableCopy,
-  tableToHtml, tableToText, HEADER_ROW,
+  tableToHtml, tableToText, HEADER_ROW, authorLabel,
   isNumericCell, numericCellColor, formatNumericCell, coloredDeltaParts,
-  type TableBlock
+  type TableBlock, type SubBlock
 } from './reportBlocks';
 
 /** 3x3 표 — 값은 "r,c" 로 채워 이동을 눈으로 확인할 수 있게 한다 */
@@ -342,5 +342,85 @@ describe('증감 표기 — "값(증감)" 형태 (예: "5(+3)")', () => {
     const t = setCell(createTableBlock(1, 1), 0, 0, '5(+3)');
     const html = tableToHtml(t);
     expect(html).toContain('5(<span style="color:#dc2626;font-weight:bold;">+3</span>)');
+  });
+});
+
+/**
+ * 소분류 옆 작성자 표기 — 생성자 한 명이 아니라 실제로 손댄 사람 전부.
+ *
+ * 지금까지는 소분류를 만든 사람만 나와서, 그 아래 항목을 다른 사람이 채워도
+ * 취합본·개요에서 누가 썼는지 드러나지 않았다.
+ *
+ * 규칙을 화면마다 따로 구현하면 같은 소분류가 화면마다 다른 이름으로 보이므로
+ * (collabStatus 가 작성 현황 판정을 한곳에 모은 것과 같은 이유) 이 함수 하나만 쓴다.
+ */
+describe('authorLabel — 소분류에 표시할 작성자 이름', () => {
+  const sub = (over: Partial<SubBlock> = {}): SubBlock =>
+    ({ id: 'b1', type: 'sub', subText: '공통', bullets: [], ...over });
+
+  it('항목 작성자 정보가 없으면 생성자만 나온다 (기존 문서·개인 작성 보고서)', () => {
+    expect(authorLabel(sub({ authorText: '양병석', bullets: [{ id: 'x', text: '로그 개선' }] })))
+      .toBe('양병석');
+  });
+
+  it('항목을 입력한 사람이 생성자와 함께 나온다', () => {
+    expect(authorLabel(sub({
+      authorText: '양병석',
+      bullets: [
+        { id: 'x', text: '로그 개선', authorText: '양병석' },
+        { id: 'y', text: '엑셀 오류 안내', authorText: '김소영' }
+      ]
+    }))).toBe('양병석, 김소영');
+  });
+
+  it('생성자 먼저, 그다음 항목이 놓인 순서대로 나온다', () => {
+    expect(authorLabel(sub({
+      authorText: '이다영',
+      bullets: [
+        { id: 'x', text: 'a', authorText: '김소영' },
+        { id: 'y', text: 'b', authorText: '양병석' }
+      ]
+    }))).toBe('이다영, 김소영, 양병석');
+  });
+
+  it('같은 사람이 여러 항목을 써도 이름은 한 번만 나온다', () => {
+    expect(authorLabel(sub({
+      authorText: '양병석',
+      bullets: [
+        { id: 'x', text: 'a', authorText: '양병석' },
+        { id: 'y', text: 'b', authorText: '양병석' },
+        { id: 'z', text: 'c', authorText: '김소영' }
+      ]
+    }))).toBe('양병석, 김소영');
+  });
+
+  it('생성자가 비어 있으면 항목 작성자만 나온다', () => {
+    expect(authorLabel(sub({
+      bullets: [{ id: 'x', text: 'a', authorText: '김소영' }]
+    }))).toBe('김소영');
+  });
+
+  it('팀장이 이름칸을 고쳤으면 그 값만 쓴다 — 자동 합산을 멈춘다', () => {
+    // 취합본에서 "개발1파트" 처럼 묶어 쓰는 관행이 있어, 손댄 값이 이겨야 한다
+    expect(authorLabel(sub({
+      authorText: '개발1파트',
+      authorPinned: true,
+      bullets: [
+        { id: 'x', text: 'a', authorText: '양병석' },
+        { id: 'y', text: 'b', authorText: '김소영' }
+      ]
+    }))).toBe('개발1파트');
+  });
+
+  it('팀장이 이름칸을 비웠으면 아무 이름도 안 나온다', () => {
+    expect(authorLabel(sub({
+      authorText: '',
+      authorPinned: true,
+      bullets: [{ id: 'x', text: 'a', authorText: '양병석' }]
+    }))).toBe('');
+  });
+
+  it('이름이 하나도 없으면 빈 문자열 — 호출부가 대괄호만 찍지 않도록', () => {
+    expect(authorLabel(sub({ bullets: [{ id: 'x', text: 'a' }] }))).toBe('');
   });
 });
