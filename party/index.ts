@@ -17,6 +17,7 @@ import {
   type RealtimeTokenPayload, type RoomKey
 } from '../src/lib/realtime/token';
 import { sendAlert, type AlertEnv } from './alert';
+import { loadWithRetry } from './loadRetry';
 
 export interface Env {
   /** 사용자 접속 토큰 서명키 */
@@ -134,7 +135,14 @@ export class WeeklyRoom extends YServer<Env> {
 
   /** 룸 콜드스타트 — DB 에서 초기 상태를 가져온다 */
   async onLoad(): Promise<Y.Doc | void> {
-    const res = await this.callNext('/api/realtime/doc', { room: this.name });
+    // 일시적 네트워크 결함(520 계열)이면 짧게 다시 시도한다.
+    // 2026-09-22 18:04 에 520 한 번으로 편집 화면이 2분 18초 동안 열리지 않았는데,
+    // 그 사이 서버는 멀쩡했고 저절로 회복됐다. 재시도 대상은 loadRetry 가 좁혀 둔다 —
+    // 부하·권한·세대 계열까지 다시 걸면 2026-08-28 의 재접속 폭풍을 3배로 키운다.
+    const res = await loadWithRetry(
+      () => this.callNext('/api/realtime/doc', { room: this.name }),
+      ms => new Promise(r => setTimeout(r, ms))
+    );
     if (!res.ok) {
       // DB 가 이 룸보다 새 세대를 갖고 있다 — 취합본 저장·복원으로 이 룸은 은퇴했다.
       // 장애가 아니므로 알리지 않는다. 대신 남은 접속자를 여기서 새 룸으로 보낸다:
