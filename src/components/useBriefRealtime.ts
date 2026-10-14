@@ -83,8 +83,12 @@ const initial: BriefRealtime = {
 
 export function useBriefRealtime(
   year: number, weekNum: number, userId: number | null, userName: string
-): BriefRealtime & { flush: () => Promise<string> } {
+): BriefRealtime & { flush: () => Promise<string>; retry: () => void } {
   const [state, setState] = useState<BriefRealtime>(initial);
+  // 잠긴 주차는 토큰이 409 라 legacy 로 열린다. 잠금을 풀어도 훅은 같은 주차라 다시 돌지 않으므로
+  // 호출자가 이 값을 올려 룸 접속을 처음부터 다시 시도하게 한다.
+  const [retryKey, setRetryKey] = useState(0);
+  const retry = useCallback(() => setRetryKey(k => k + 1), []);
   // 현재 주차를 항상 최신으로 들고 있어야 저장 요청이 엉뚱한 주차로 가지 않는다
   const weekRef = useRef({ year, weekNum });
   weekRef.current = { year, weekNum };
@@ -334,7 +338,7 @@ export function useBriefRealtime(
     };
     // userName 은 접속 중 바뀌지 않는다 — 의존성에 넣으면 이름 로딩 시점에 룸이 재연결된다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, weekNum, userId]);
+  }, [year, weekNum, userId, retryKey]);
 
   /** [저장] — 디바운스를 기다리지 않고 룸에 즉시 반영을 지시한다 */
   const flush = useCallback(async (): Promise<string> => {
@@ -354,7 +358,7 @@ export function useBriefRealtime(
     }
   }, []);
 
-  return { ...state, flush };
+  return { ...state, flush, retry };
 }
 
 // ── 제목 바인딩 ────────────────────────────────────────────────

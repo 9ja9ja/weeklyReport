@@ -136,6 +136,8 @@ export default function BriefPage() {
       const data = await res.json();
       if (res.ok) {
         setBrief(data.brief);
+        // 잠긴 채로 열린 주차는 실시간 접속 없이 기존 방식으로 떠 있다. 풀린 즉시 룸에 붙여 편집모드로 보낸다.
+        if (!next && rt.mode === 'legacy') rt.retry();
         setMsg(data.warning ?? (next ? '잠금 처리되었습니다.' : '잠금이 해제되었습니다.'));
         if (!data.warning) setTimeout(() => setMsg(''), 2000);
       }
