@@ -5,7 +5,7 @@
  * 엉뚱한 주차에 작성해 넣는다. 연말·연초는 달력 연도와 주차의 해가 갈라져 특히 틀리기 쉽다.
  */
 import { describe, it, expect } from 'vitest';
-import { getIsoWeek, getDefaultWeek, getPrevWeek } from './weekUtils';
+import { getIsoWeek, getDefaultWeek, getPrevWeek, advanceWeekLabels } from './weekUtils';
 
 /** 로컬 시간 기준 — 화면은 브라우저 로컬 시간으로 판단한다 */
 const at = (s: string) => new Date(`${s}T09:00:00`);
@@ -64,5 +64,18 @@ describe('getDefaultWeek — 월·화는 지난주, 수~일은 이번주', () =>
       expect(expected.weekNum).toBeLessThanOrEqual(53);
       d.setDate(d.getDate() + 1);
     }
+  });
+});
+
+describe('advanceWeekLabels', () => {
+  it('머리글의 주차·날짜를 한 주씩 민다', () => {
+    const html = '<th>41주(10.05.~10.09.)</th><th>42주(10.12.~10.16.)</th>';
+    expect(advanceWeekLabels(html, 2026, 41)).toBe('<th>42주(10.12.~10.16.)</th><th>43주(10.19.~10.23.)</th>');
+  });
+  it('구분자 공백을 보존한다', () => {
+    expect(advanceWeekLabels('41주(10.05. ~ 10.09.)', 2026, 41)).toBe('42주(10.12. ~ 10.16.)');
+  });
+  it('연말을 넘으면 다음 해 1주차로 넘어간다', () => {
+    expect(advanceWeekLabels('53주(12.28.~01.01.)', 2026, 52)).toBe('1주(01.04.~01.08.)');
   });
 });

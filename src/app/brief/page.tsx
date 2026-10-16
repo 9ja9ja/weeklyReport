@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/UserContext';
-import { getWeekNumber, getWeekRange, getPrevWeek, getDefaultWeek, formatDateShort } from '@/lib/weekUtils';
+import { getWeekNumber, getWeekRange, getPrevWeek, getDefaultWeek, formatDateShort, advanceWeekLabels } from '@/lib/weekUtils';
 import { useBriefRealtime, useBriefTitleText, useYText } from '@/components/useBriefRealtime';
 import type { Editor } from '@tiptap/core';
 import dynamic from 'next/dynamic';
@@ -154,18 +154,21 @@ export default function BriefPage() {
       const res = await fetch(`/api/briefs?year=${prev.year}&weekNum=${prev.weekNum}`);
       const data = await res.json();
       if (data.brief && data.brief.content) {
+        // 머리글의 주차·날짜는 전주 값 그대로 오면 매주 손으로 고쳐야 한다 — 한 주씩 밀어서 가져온다
+        const content = advanceWeekLabels(data.brief.content, prev.year, prev.weekNum);
+        const copiedTitle = advanceWeekLabels(data.brief.title ?? '', prev.year, prev.weekNum);
         if (live) {
           // 공동 편집 중에는 문서 자체를 바꿔야 다른 사람 화면에도 반영된다.
           // preserveWhitespace 가 없으면 공백으로 만든 계단식 들여쓰기가 파싱에서 접힌다
           // (개인 작성 경로는 BriefEditor 안에서 같은 옵션으로 넣고 있다)
-          editor?.commands.setContent(data.brief.content, { parseOptions: { preserveWhitespace: 'full' } });
-          yTitle.push(data.brief.title ?? '');
+          editor?.commands.setContent(content, { parseOptions: { preserveWhitespace: 'full' } });
+          yTitle.push(copiedTitle);
           setMsg('전주차 내용을 복사했습니다.');
           setTimeout(() => setMsg(''), 3000);
           return;
         }
-        setTitle(data.brief.title);
-        setContent(data.brief.content);
+        setTitle(copiedTitle);
+        setContent(content);
         setDirty(true);
         setMsg('전주차 내용을 복사했습니다. 저장 버튼을 눌러 저장해주세요.');
         setTimeout(() => setMsg(''), 3000);

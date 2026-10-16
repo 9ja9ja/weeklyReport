@@ -82,3 +82,25 @@ export function getRecentWeeks(count: number): { year: number; weekNum: number }
 
   return weeks;
 }
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * 요약본 머리글의 "N주(MM.DD.~MM.DD.)" 표기를 한 주 뒤로 민다 — 전주차를 복사해 올 때 쓴다.
+ *
+ * 전주 41주(10.05.~10.09.) · 42주(10.12.~10.16.) 를 복사하면 42주(10.12.~10.16.) · 43주(10.19.~10.23.) 가 된다.
+ * 연말을 넘는 경우를 위해 복사 원본의 연도(fromYear)·주차(fromWeek)를 기준으로 각 표기의 해를 정한다.
+ * 구분자(`~` 앞뒤 공백)는 원문 그대로 둔다.
+ */
+export function advanceWeekLabels(text: string, fromYear: number, fromWeek: number): string {
+  return text.replace(
+    /(\d{1,2})주\((\d{1,2})\.(\d{1,2})\.(\s*~\s*)(\d{1,2})\.(\d{1,2})\.\)/g,
+    (_m, w: string, _m1, _d1, sep: string) => {
+      const week = Number(w);
+      const year = week >= fromWeek ? fromYear : fromYear + 1;
+      const next = getNextWeek(year, week);
+      const { monday, friday } = getWeekRange(next.year, next.weekNum);
+      return `${next.weekNum}주(${pad2(monday.getMonth() + 1)}.${pad2(monday.getDate())}.${sep}${pad2(friday.getMonth() + 1)}.${pad2(friday.getDate())}.)`;
+    },
+  );
+}
