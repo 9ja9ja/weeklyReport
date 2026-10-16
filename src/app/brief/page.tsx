@@ -154,9 +154,9 @@ export default function BriefPage() {
       const res = await fetch(`/api/briefs?year=${prev.year}&weekNum=${prev.weekNum}`);
       const data = await res.json();
       if (data.brief && data.brief.content) {
-        // 머리글의 주차·날짜는 전주 값 그대로 오면 매주 손으로 고쳐야 한다 — 한 주씩 밀어서 가져온다
-        const content = advanceWeekLabels(data.brief.content, prev.year, prev.weekNum);
-        const copiedTitle = advanceWeekLabels(data.brief.title ?? '', prev.year, prev.weekNum);
+        // 머리글의 주차·날짜는 전주 값 그대로 오면 매주 손으로 고쳐야 한다 — 보고 있는 주차 기준으로 맞춰서 가져온다
+        const content = advanceWeekLabels(data.brief.content, year, weekNum);
+        const copiedTitle = advanceWeekLabels(data.brief.title ?? '', year, weekNum);
         if (live) {
           // 공동 편집 중에는 문서 자체를 바꿔야 다른 사람 화면에도 반영된다.
           // preserveWhitespace 가 없으면 공백으로 만든 계단식 들여쓰기가 파싱에서 접힌다

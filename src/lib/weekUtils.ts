@@ -84,23 +84,33 @@ export function getRecentWeeks(count: number): { year: number; weekNum: number }
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
+const WEEK_MS = 7 * 86400000;
 
 /**
- * 요약본 머리글의 "N주(MM.DD.~MM.DD.)" 표기를 한 주 뒤로 민다 — 전주차를 복사해 올 때 쓴다.
+ * 요약본 머리글의 "N주(MM.DD.~MM.DD.)" 표기를 **보고 있는 주차 기준**으로 맞춘다 — 전주차를 복사해 올 때 쓴다.
  *
- * 전주 41주(10.05.~10.09.) · 42주(10.12.~10.16.) 를 복사하면 42주(10.12.~10.16.) · 43주(10.19.~10.23.) 가 된다.
- * 연말을 넘는 경우를 위해 복사 원본의 연도(fromYear)·주차(fromWeek)를 기준으로 각 표기의 해를 정한다.
- * 구분자(`~` 앞뒤 공백)는 원문 그대로 둔다.
+ * 머리글은 "해당 주차 / 다음 주차" 두 칸이다. 복사 원본이 몇 주차 머리글이든(원본 머리글이 틀려 있어도)
+ * 첫 표기가 targetWeek 이 되도록 모든 표기를 같은 만큼 민다. 구분자(`~` 앞뒤 공백)는 그대로 둔다.
  */
-export function advanceWeekLabels(text: string, fromYear: number, fromWeek: number): string {
-  return text.replace(
-    /(\d{1,2})주\((\d{1,2})\.(\d{1,2})\.(\s*~\s*)(\d{1,2})\.(\d{1,2})\.\)/g,
-    (_m, w: string, _m1, _d1, sep: string) => {
-      const week = Number(w);
-      const year = week >= fromWeek ? fromYear : fromYear + 1;
-      const next = getNextWeek(year, week);
-      const { monday, friday } = getWeekRange(next.year, next.weekNum);
-      return `${next.weekNum}주(${pad2(monday.getMonth() + 1)}.${pad2(monday.getDate())}.${sep}${pad2(friday.getMonth() + 1)}.${pad2(friday.getDate())}.)`;
-    },
-  );
+export function advanceWeekLabels(text: string, targetYear: number, targetWeek: number): string {
+  const targetMon = getWeekRange(targetYear, targetWeek).monday.getTime();
+  // 표기에는 연도가 없다 — 대상 주차에 가장 가까운 해로 해석한다(연말·연초 걸침 대응)
+  const monOf = (week: number) =>
+    [targetYear - 1, targetYear, targetYear + 1]
+      .map(y => getWeekRange(y, week).monday)
+      .sort((a, b) => Math.abs(a.getTime() - targetMon) - Math.abs(b.getTime() - targetMon))[0];
+
+  const re = /(\d{1,2})주\((\d{1,2})\.(\d{1,2})\.(\s*~\s*)(\d{1,2})\.(\d{1,2})\.\)/g;
+  const first = re.exec(text);
+  if (!first) return text;
+  const deltaWeeks = Math.round((targetMon - monOf(Number(first[1])).getTime()) / WEEK_MS);
+  re.lastIndex = 0;
+  return text.replace(re, (_m, w: string, _a, _b, sep: string) => {
+    const monday = monOf(Number(w));
+    monday.setDate(monday.getDate() + 7 * deltaWeeks);
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    const { weekNum } = getIsoWeek(monday);
+    return `${weekNum}주(${pad2(monday.getMonth() + 1)}.${pad2(monday.getDate())}.${sep}${pad2(friday.getMonth() + 1)}.${pad2(friday.getDate())}.)`;
+  });
 }
