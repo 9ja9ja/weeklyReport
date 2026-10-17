@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { currentUserId, unauthorized, forbidden, requireTeamEditor } from '@/lib/auth';
-import { putAttachment } from '@/lib/attachmentStorage';
+import { AttachmentStorageNotConfigured, putAttachment } from '@/lib/attachmentStorage';
 import { briefMailSent } from '@/lib/briefTeamStatus';
 
 /** 파일 한 개당 한도. 메일로 나가는 합계는 보낼 때 따로 본다. */
@@ -34,7 +34,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `파일은 ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB 이하만 올릴 수 있습니다.` }, { status: 413 });
   }
 
-  const key = await putAttachment(Buffer.from(await file.arrayBuffer()));
+  let key: string;
+  try {
+    key = await putAttachment(Buffer.from(await file.arrayBuffer()));
+  } catch (e) {
+    // 저장 폴더 설정 누락은 사용자가 아니라 서버 설정 문제라 그렇게 알려준다
+    if (e instanceof AttachmentStorageNotConfigured) {
+      return NextResponse.json({ error: '첨부 저장소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.' }, { status: 503 });
+    }
+    return NextResponse.json({ error: '파일을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.' }, { status: 500 });
+  }
   const row = await prisma.briefAttachment.create({
     data: {
       year, weekNum, teamId,
