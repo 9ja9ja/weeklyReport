@@ -207,6 +207,8 @@ export default function BriefPage() {
         h2 { font-size: 13pt; font-weight: 700; margin: 12px 0 5px; }
         h3 { font-size: 11pt; font-weight: 700; margin: 10px 0 4px; }
         p { margin: 2px 0; }
+        /* 공백으로 맞춘 열이 PDF 에서 접히지 않도록 — 편집기 화면과 같은 규칙(break-spaces)을 쓴다 */
+        p, li, td, th { white-space: pre-wrap; }
         ul, ol { padding-left: 24px; margin: 2px 0; }
         table { border-collapse: collapse; width: 100%; margin: 6px 0; }
         td, th { border: 1px solid #333; padding: 3px 6px; font-size: 9.5pt;

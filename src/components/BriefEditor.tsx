@@ -268,6 +268,10 @@ export default function BriefEditor({ content, onChange, editable, ydoc, provide
     // 공동 편집일 때 초기 content 를 주면 Yjs 문서와 합쳐져 내용이 두 벌이 된다.
     // 비-협업 모드에서는 로드 시 테마 색·인라인 font-size 를 걸러낸다.
     content: collaborative ? undefined : sanitizeBriefHtml(content),
+    // 처음 문서를 만들 때도 공백을 보존해야 한다. 이 옵션이 없으면 저장된 본문의
+    // 연속 공백·앞 공백(공백으로 맞춘 열)이 초기 파싱에서 접히고, 아래 setContent 보정은
+    // "이미 같은 HTML" 로 보여 건너뛴다. 그 상태에서 저장을 누르면 접힌 내용이 그대로 저장된다.
+    parseOptions: { preserveWhitespace: 'full' },
     editable,
     immediatelyRender: false,
     // 공동 편집일 때는 본문의 진실원본이 Y.Doc 이라 HTML 이 필요 없다.
