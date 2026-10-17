@@ -25,6 +25,9 @@ model Team {
   collabUntilYear Int?
   collabUntilWeek Int?
 
+  /// 요약본 팀별 작성 체크 대상에서 뺀다. PMO·땡겨요처럼 팀이 아니라 프로젝트성 조직용.
+  briefExcluded   Boolean @default(false)
+
   users           User[]
   userTeams       UserTeam[]
   parts           Part[]
@@ -35,6 +38,8 @@ model Team {
   sharedDocs      SharedDoc[]
   docActivities   DocActivity[]
   writingExcuses  WritingExcuse[]
+  briefChecks     BriefTeamCheck[]
+  briefAttachments BriefAttachment[]
 }
 
 model User {
@@ -219,6 +224,66 @@ model Brief {
   updatedAt DateTime  @updatedAt
 
   @@unique([year, weekNum])
+}
+
+/// 본부 요약본에 "우리 팀 내용을 다 썼다"는 팀별 체크. 행이 있으면 작성완료, 없으면 미작성.
+/// 해제는 행 삭제다. 체크한 사람은 FK 없이 id 만 남긴다(lockedBy 와 같은 방식 — 퇴사해도 기록은 유지).
+model BriefTeamCheck {
+  id        Int      @id @default(autoincrement())
+  year      Int
+  weekNum   Int
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  checkedBy Int
+  checkedAt DateTime @default(now())
+
+  @@unique([teamId, year, weekNum])
+  @@index([year, weekNum])
+}
+
+/// 본부 요약본에 미리 올려 두는 팀별 첨부파일 — 보고메일을 보낼 때 함께 나간다.
+/// 파일 본문은 DB 가 아니라 저장소에 두고 storageKey 로만 가리킨다(저장소 구현은 src/lib/attachmentStorage.ts).
+model BriefAttachment {
+  id         Int      @id @default(autoincrement())
+  year       Int
+  weekNum    Int
+  teamId     Int
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  fileName   String
+  size       Int
+  mime       String   @default("application/octet-stream")
+  storageKey String
+  uploadedBy Int
+  uploadedAt DateTime @default(now())
+
+  @@index([year, weekNum])
+}
+
+/// 보고메일 받는 사람·참조 목록 — 매주 같은 사람에게 가므로 저장해 두고 불러온다.
+model BriefMailRecipient {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String   @default("")
+  kind      String   @default("cc") // "to" | "cc"
+  orderIdx  Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+/// 보고메일 발송 이력. 수신자·첨부는 발송 당시 값을 그대로 남긴다(목록이 나중에 바뀌어도 기록은 유지).
+model BriefMailLog {
+  id          Int      @id @default(autoincrement())
+  year        Int
+  weekNum     Int
+  sentBy      Int
+  subject     String
+  recipients  Json
+  attachments Json
+  /// "sent" 실제 발송 | "dryrun" SMTP 미설정으로 발송하지 않고 기록만 | "failed" 발송 실패
+  status      String
+  error       String?
+  sentAt      DateTime @default(now())
+
+  @@index([year, weekNum])
 }
 
 model ScheduleReport {

@@ -8,6 +8,9 @@ import { useBriefRealtime, useBriefTitleText, useYText } from '@/components/useB
 import type { Editor } from '@tiptap/core';
 import dynamic from 'next/dynamic';
 
+import BriefTeamStatusCard, { type BriefTeamStatusData } from '@/components/BriefTeamStatusCard';
+import BriefMailModal from '@/components/BriefMailModal';
+
 const BriefEditor = dynamic(() => import('@/components/BriefEditor'), { ssr: false });
 
 /** 마지막 저장 시각을 사람이 읽는 문구로 */
@@ -49,6 +52,9 @@ export default function BriefPage() {
   const contentRef = useRef(content);
   contentRef.current = content;
   const [editor, setEditor] = useState<Editor | null>(null);
+  // 잠금 처리 직후 우측 팀별 현황을 바로 다시 읽게 하는 신호
+  const [statusKey, setStatusKey] = useState(0);
+  const [mailOpen, setMailOpen] = useState(false);
 
   // 실시간 공동 편집. 연결되지 않으면 mode='legacy' 로 떨어져 아래 기존 흐름이 그대로 돈다.
   const rt = useBriefRealtime(year, weekNum, userId, userName);
@@ -126,7 +132,25 @@ export default function BriefPage() {
     // brief 는 주차 로드 시점 값이라 남이 방금 잠근 것을 모른다.
     // 화면에 보이는 상태(lockedNow)를 기준으로 해야 라벨과 실제 동작이 어긋나지 않는다.
     const next = !lockedNow;
-    if (next && !confirm('이 요약본을 잠금 처리하시겠습니까? 잠금 중에는 수정할 수 없습니다.')) return;
+    if (next) {
+      // 작성완료 체크가 안 된 팀이 있으면 어느 팀인지 보여주고 그래도 잠글지 묻는다.
+      // 현황 조회가 실패해도 잠금 자체를 막지는 않는다 — 기본 확인 문구로 진행한다.
+      let pending = '';
+      try {
+        const res = await fetch(`/api/briefs/team-status?year=${year}&weekNum=${weekNum}`);
+        if (res.ok) {
+          const status: BriefTeamStatusData = await res.json();
+          pending = status.teams
+            .filter(t => !t.checked)
+            .map(t => t.teamName)
+            .join(', ');
+        }
+      } catch {}
+      const ask = pending
+        ? `아직 작성완료를 체크하지 않은 팀이 있습니다.\n\n${pending}\n\n그래도 이 요약본을 잠금 처리하시겠습니까? 잠금 중에는 수정할 수 없습니다.`
+        : '이 요약본을 잠금 처리하시겠습니까? 잠금 중에는 수정할 수 없습니다.';
+      if (!confirm(ask)) return;
+    }
     try {
       const res = await fetch('/api/briefs', {
         method: 'PATCH',
@@ -136,6 +160,7 @@ export default function BriefPage() {
       const data = await res.json();
       if (res.ok) {
         setBrief(data.brief);
+        setStatusKey(k => k + 1);
         // 잠긴 채로 열린 주차는 실시간 접속 없이 기존 방식으로 떠 있다. 풀린 즉시 룸에 붙여 편집모드로 보낸다.
         if (!next && rt.mode === 'legacy') rt.retry();
         setMsg(data.warning ?? (next ? '잠금 처리되었습니다.' : '잠금이 해제되었습니다.'));
@@ -259,7 +284,8 @@ export default function BriefPage() {
 
   return (
     <div className="container brief-page">
-      <div className="glass-panel" style={{ padding: '1.5rem' }}>
+      <div className="brief-layout">
+      <div className="glass-panel brief-main" style={{ padding: '1.5rem' }}>
         <div className="brief-header">
           <h2>요약본</h2>
           <div className="brief-week-nav">
@@ -283,6 +309,16 @@ export default function BriefPage() {
                 <button onClick={toggleLock} className={`btn btn-sm ${isLocked ? 'btn-danger' : ''}`}>
                   {isLocked ? '잠금 해제' : '잠금'}
                 </button>
+                {/* disabled 버튼은 브라우저에 따라 마우스 이벤트(title 툴팁)가 안 오므로 감싸는 span 이 안내를 맡는다 */}
+                <span className="brief-mail-btn-wrap" data-tip={isLocked ? undefined : '잠금 후에 보낼 수 있습니다'}>
+                  <button
+                    onClick={() => setMailOpen(true)}
+                    disabled={!isLocked}
+                    className="btn btn-primary btn-sm"
+                  >
+                    보고메일 보내기
+                  </button>
+                </span>
               </>
             )}
           </div>
@@ -352,6 +388,16 @@ export default function BriefPage() {
           </>
         )}
       </div>
+      <BriefTeamStatusCard year={year} weekNum={weekNum} refreshKey={statusKey} />
+      </div>
+      {mailOpen && (
+        <BriefMailModal
+          year={year}
+          weekNum={weekNum}
+          onClose={() => setMailOpen(false)}
+          onSent={m => { setMsg(m); setStatusKey(k => k + 1); setTimeout(() => setMsg(''), 6000); }}
+        />
+      )}
     </div>
   );
 }
